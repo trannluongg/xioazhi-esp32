@@ -14,8 +14,10 @@
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
+#include <driver/i2c.h>
 #include <arpa/inet.h>
 #include <font_awesome.h>
+#include <unordered_map>
 
 #define TAG "Application"
 
@@ -65,6 +67,14 @@ void Application::Initialize() {
     // Setup the display
     auto display = board.GetDisplay();
     display->SetupUI();
+    
+    // Load emojis from SD card (/sdcard/dodomio/emoji/)
+    // This loads all .gif files into emoji_collection for SetEmotion()
+    auto theme = display->GetTheme();
+    if (theme && theme->emoji_collection()) {
+        theme->emoji_collection()->LoadFromSD("/sdcard/dodomio/emoji");
+    }
+    
     // Print board name/version info
     display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
 
@@ -601,6 +611,9 @@ void Application::InitializeProtocol() {
                 ESP_LOGW(TAG, "Invalid custom message format: missing payload");
             }
 #endif
+        } else if (strcmp(type->valuestring, "device_action") == 0) {
+            // Audio Waiting Flow - Handle device action messages
+            HandleDeviceAction(root);
         } else {
             ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
         }
@@ -840,9 +853,6 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
     }
     // Set the chat state to wake word detected
     protocol_->SendWakeWordDetected(wake_word);
-
-    // Set flag to play popup sound after state changes to listening
-    play_popup_on_listening_ = true;
     SetListeningMode(GetDefaultListeningMode());
 #else
     // Set flag to play popup sound after state changes to listening
@@ -958,7 +968,7 @@ void Application::Reboot() {
         protocol_->CloseAudioChannel();
     }
     protocol_.reset();
-    audio_service_.Stop();
+    audio_service_.StopPlayback();
 
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
@@ -987,7 +997,7 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     display->SetChatMessage("system", message.c_str());
 
     board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
-    audio_service_.Stop();
+    audio_service_.StopPlayback();
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     bool upgrade_success = Ota::Upgrade(upgrade_url, [this, display](int progress, size_t speed) {
@@ -1115,5 +1125,170 @@ void Application::ResetProtocol() {
         // Reset protocol
         protocol_.reset();
     });
+}
+
+// =============================================
+// Audio Waiting Flow - Device Action Handlers
+// =============================================
+
+// Gesture mapping: gesture name → I2C command byte
+static const std::unordered_map<std::string, uint8_t> GESTURE_MAP = {
+    {"stop", 0x00},
+    {"nod", 0x0A},
+    {"shake_head", 0x0B},
+    {"raise_hand", 0x0C},
+    {"wave", 0x0D},
+    {"forward_slow", 0x01},
+    {"forward_fast", 0x02},
+    {"backward_slow", 0x03},
+    {"backward_fast", 0x04},
+    {"turn_left_slow", 0x05},
+    {"turn_left_fast", 0x06},
+    {"turn_right_slow", 0x07},
+    {"turn_right_fast", 0x08},
+    {"spin_left", 0x09},
+};
+
+void Application::HandleDeviceAction(const cJSON* root) {
+    auto action = cJSON_GetObjectItem(root, "action");
+    if (!cJSON_IsString(action)) return;
+
+    ESP_LOGI(TAG, "Device action: %s", action->valuestring);
+
+    if (strcmp(action->valuestring, "play_scene") == 0) {
+        HandlePlayScene(root);
+    } else if (strcmp(action->valuestring, "stop_scene") == 0) {
+        HandleStopScene(root);
+    } else if (strcmp(action->valuestring, "change_emoji") == 0) {
+        auto emoji = cJSON_GetObjectItem(root, "emoji");
+        if (cJSON_IsString(emoji)) {
+            Schedule([display, emoji_str = std::string(emoji->valuestring)]() {
+                display->SetEmotion(emoji_str.c_str());
+            });
+        }
+    } else if (strcmp(action->valuestring, "gesture") == 0) {
+        auto gesture = cJSON_GetObjectItem(root, "gesture");
+        if (cJSON_IsString(gesture)) {
+            SendGestureToSTM32(gesture->valuestring);
+        }
+    }
+}
+
+void Application::HandlePlayScene(const cJSON* root) {
+    // 1. Get parameters
+    auto scene_tag = cJSON_GetObjectItem(root, "scene_tag");
+    auto emoji = cJSON_GetObjectItem(root, "emoji");
+    auto gesture = cJSON_GetObjectItem(root, "gesture");
+    auto reply = cJSON_GetObjectItem(root, "reply");
+    auto reply_action = cJSON_GetObjectItem(root, "reply_action");
+
+    std::string scene = scene_tag ? scene_tag->valuestring : "";
+    std::string emo = emoji ? emoji->valuestring : "";
+    std::string gest = gesture ? gesture->valuestring : "";
+    bool need_reply = reply ? reply->valueint : false;
+    std::string reply_act = reply_action ? reply_action->valuestring : "";
+
+    ESP_LOGI(TAG, "Play scene: %s, emoji: %s, gesture: %s, reply: %d", 
+             scene.c_str(), emo.c_str(), gest.c_str(), need_reply);
+
+    // 2. Execute on main loop
+    Schedule([this, scene, emo, gest, need_reply, reply_act]() {
+        // 2.1 Send gesture to STM32 (I2C)
+        if (!gest.empty()) {
+            SendGestureToSTM32(gest.c_str());
+        }
+
+        // 2.2 Change emoji (from /dodomio/emoji/<emoji>.png)
+        if (!emo.empty()) {
+            display->SetEmotion(emo.c_str());
+        }
+
+        // 2.3 Play audio from SD card (/dodomio/audio/<scene>.wav)
+        if (!scene.empty()) {
+            std::string audio_path = "/sdcard/dodomio/audio/" + scene + ".wav";
+            
+            // Set callback to reply when audio finishes
+            if (need_reply && !reply_act.empty()) {
+                audio_service_.SetPlaybackFinishedCallback([this, reply_act]() {
+                    SendSceneDoneReply(reply_act.c_str());
+                });
+            }
+            
+            audio_service_.PlayFile(audio_path.c_str());
+        } else if (need_reply && !reply_act.empty()) {
+            // No audio, reply immediately
+            SendSceneDoneReply(reply_act.c_str());
+        }
+    });
+}
+
+void Application::HandleStopScene(const cJSON* root) {
+    auto emoji = cJSON_GetObjectItem(root, "emoji");
+    auto gesture = cJSON_GetObjectItem(root, "gesture");
+    
+    std::string emo = emoji ? emoji->valuestring : "neutral";
+    std::string gest = gesture ? gesture->valuestring : "stop";
+    
+    ESP_LOGI(TAG, "Stop scene: emoji=%s, gesture=%s", emo.c_str(), gest.c_str());
+    
+    Schedule([this, emo, gest]() {
+        // Stop audio playback
+        audio_service_.StopPlayback();
+        
+        // Change emoji
+        display->SetEmotion(emo.c_str());
+        
+        // Send gesture stop command
+        SendGestureToSTM32(gest.c_str());
+    });
+}
+
+void Application::SendGestureToSTM32(const char* gesture) {
+    // STM32 I2C address (common addresses: 0x27, 0x28)
+    static const uint8_t STM32_ADDR = 0x27;
+    static const uint8_t REG_CMD = 0x00;
+    static const i2c_port_t I2C_PORT = I2C_NUM_0;
+
+    auto it = GESTURE_MAP.find(gesture);
+    uint8_t cmd = (it != GESTURE_MAP.end()) ? it->second : 0x00;
+
+    // I2C write to STM32
+    i2c_cmd_handle_t cmd_handle = i2c_cmd_link_create();
+    i2c_master_start(cmd_handle);
+    i2c_master_write_byte(cmd_handle, (STM32_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd_handle, REG_CMD, true);
+    i2c_master_write_byte(cmd_handle, cmd, true);
+    i2c_master_stop(cmd_handle);
+    
+    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd_handle, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd_handle);
+
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Gesture sent: %s -> 0x%02X", gesture, cmd);
+    } else {
+        ESP_LOGE(TAG, "Failed to send gesture: %s (err=0x%x)", gesture, ret);
+    }
+}
+
+void Application::SendSceneDoneReply(const char* reply_action) {
+    if (!protocol_ || !protocol_->IsConnected()) {
+        ESP_LOGW(TAG, "Protocol not connected, cannot send scene_done");
+        return;
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", "scene_done");
+    cJSON_AddStringToObject(root, "reply_action", reply_action);
+    
+    auto* json_str = cJSON_PrintUnformatted(root);
+    std::string message(json_str);
+    cJSON_free(json_str);
+    cJSON_Delete(root);
+
+    if (protocol_->SendText(message)) {
+        ESP_LOGI(TAG, "Scene done sent: %s", reply_action);
+    } else {
+        ESP_LOGE(TAG, "Failed to send scene_done: %s", reply_action);
+    }
 }
 

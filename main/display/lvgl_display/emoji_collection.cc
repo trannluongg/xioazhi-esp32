@@ -1,8 +1,13 @@
 #include "emoji_collection.h"
 
 #include <esp_log.h>
+#include <esp_vfs.h>
+#include <esp_vfs_fat.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <vector>
+#include <cstring>
 #include <unordered_map>
-#include <string>
 
 #define TAG "EmojiCollection"
 
@@ -25,6 +30,82 @@ EmojiCollection::~EmojiCollection() {
         delete it->second;
     }
     emoji_collection_.clear();
+}
+
+void EmojiCollection::LoadFromSD(const char* base_path) {
+    static const char* TAG = "LoadEmojiSD";
+    
+    ESP_LOGI(TAG, "Loading emojis from SD: %s", base_path);
+    
+    // Open directory
+    DIR* dir = opendir(base_path);
+    if (dir == nullptr) {
+        ESP_LOGW(TAG, "Cannot open emoji directory: %s", base_path);
+        return;
+    }
+    
+    struct dirent* entry;
+    int loaded_count = 0;
+    
+    // Scan all files in directory
+    while ((entry = readdir(dir)) != nullptr) {
+        // Skip . and ..
+        if (entry->d_name[0] == '.') continue;
+        
+        // Check for .gif extension
+        const char* ext = strrchr(entry->d_name, '.');
+        if (ext == nullptr || strcasecmp(ext, ".gif") != 0) {
+            continue;
+        }
+        
+        // Build full path
+        char filepath[256];
+        snprintf(filepath, sizeof(filepath), "%s/%s", base_path, entry->d_name);
+        
+        // Get file size
+        struct stat st;
+        if (stat(filepath, &st) != 0) {
+            ESP_LOGW(TAG, "Cannot stat file: %s", filepath);
+            continue;
+        }
+        
+        // Open file
+        FILE* f = fopen(filepath, "rb");
+        if (f == nullptr) {
+            ESP_LOGW(TAG, "Cannot open file: %s", filepath);
+            continue;
+        }
+        
+        // Allocate buffer and read file
+        void* data = malloc(st.st_size);
+        if (data == nullptr) {
+            ESP_LOGW(TAG, "Cannot allocate memory for: %s", entry->d_name);
+            fclose(f);
+            continue;
+        }
+        
+        size_t bytes_read = fread(data, 1, st.st_size, f);
+        fclose(f);
+        
+        if (bytes_read != (size_t)st.st_size) {
+            ESP_LOGW(TAG, "Incomplete read from: %s", filepath);
+            free(data);
+            continue;
+        }
+        
+        // Extract name without extension
+        std::string name(entry->d_name, ext - entry->d_name);
+        
+        // Create image and add to collection
+        LvglRawImage* image = new LvglRawImage(data, st.st_size);
+        AddEmoji(name, image);
+        
+        loaded_count++;
+        ESP_LOGI(TAG, "Loaded emoji: %s (%d bytes)", name.c_str(), (int)st.st_size);
+    }
+    
+    closedir(dir);
+    ESP_LOGI(TAG, "Loaded %d emojis from SD", loaded_count);
 }
 
 // These are declared in xiaozhi-fonts/src/font_emoji_32.c

@@ -169,6 +169,16 @@ private:
     
     // State change handler called by state machine
     void OnStateChanged(DeviceState old_state, DeviceState new_state);
+
+    // =============================================
+    // Audio Waiting Flow - Device Action Handlers
+    // =============================================
+    void HandleDeviceAction(const cJSON* root);
+    void HandlePlayScene(const cJSON* root);
+    void HandleStopScene(const cJSON* root);
+    void SendGestureToSTM32(const char* gesture);
+    void SendSceneDoneReply(const char* reply_action);
+
 };
 
 
