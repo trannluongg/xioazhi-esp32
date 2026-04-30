@@ -14,7 +14,7 @@
 #include <esp_log.h>
 #include <cJSON.h>
 #include <driver/gpio.h>
-#include <driver/i2c.h>
+#include <driver/i2c_master.h>
 #include <arpa/inet.h>
 #include <font_awesome.h>
 #include <unordered_map>
