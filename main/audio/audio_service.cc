@@ -763,7 +763,6 @@ bool AudioService::IsAfeWakeWord() {
 }
 
 void AudioService::PlayFile(const char* file_path) {
-    static const char* TAG = "AudioService";
     
     // Mark as playing from SD card (for callback filtering)
     is_playing_from_sdcard_ = true;

@@ -1162,6 +1162,7 @@ void Application::HandleDeviceAction(const cJSON* root) {
     } else if (strcmp(action->valuestring, "change_emoji") == 0) {
         auto emoji = cJSON_GetObjectItem(root, "emoji");
         if (cJSON_IsString(emoji)) {
+            auto display = Board::GetInstance().GetDisplay();
             Schedule([display, emoji_str = std::string(emoji->valuestring)]() {
                 display->SetEmotion(emoji_str.c_str());
             });
@@ -1192,7 +1193,8 @@ void Application::HandlePlayScene(const cJSON* root) {
              scene.c_str(), emo.c_str(), gest.c_str(), need_reply);
 
     // 2. Execute on main loop
-    Schedule([this, scene, emo, gest, need_reply, reply_act]() {
+    auto display = Board::GetInstance().GetDisplay();
+    Schedule([this, display, scene, emo, gest, need_reply, reply_act]() {
         // 2.1 Send gesture to STM32 (I2C)
         if (!gest.empty()) {
             SendGestureToSTM32(gest.c_str());
@@ -1231,7 +1233,8 @@ void Application::HandleStopScene(const cJSON* root) {
     
     ESP_LOGI(TAG, "Stop scene: emoji=%s, gesture=%s", emo.c_str(), gest.c_str());
     
-    Schedule([this, emo, gest]() {
+auto display = Board::GetInstance().GetDisplay();
+    Schedule([this, display, emo, gest]() {
         // Stop audio playback
         audio_service_.StopPlayback();
         

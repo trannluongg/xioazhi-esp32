@@ -59,7 +59,7 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
         }
         
         // Build full path
-        char filepath[256];
+        char filepath[512];
         snprintf(filepath, sizeof(filepath), "%s/%s", base_path, entry->d_name);
         
         // Get file size
