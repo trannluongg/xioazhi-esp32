@@ -9,7 +9,7 @@
 #include <cstring>
 #include <unordered_map>
 
-#define TAG "EmojiCollection"
+static const char *TAG = "EmojiCollection";
 
 void EmojiCollection::AddEmoji(const std::string& name, LvglImage* image) {
     emoji_collection_[name] = image;
