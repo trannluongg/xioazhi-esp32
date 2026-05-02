@@ -252,6 +252,10 @@ public:
         }
         WifiBoard::SetPowerSaveLevel(level);
     }
+
+    virtual void* GetI2cBus() override {
+        return (void*)i2c_bus_;
+    }
 };
 
 DECLARE_BOARD(WaveshareEsp32s3TouchLCD43c);

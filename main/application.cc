@@ -613,6 +613,9 @@ void Application::InitializeProtocol() {
 #endif
         } else if (strcmp(type->valuestring, "device_action") == 0) {
             // Audio Waiting Flow - Handle device action messages
+            char* json_str = cJSON_PrintUnformatted((cJSON*)root);
+            ESP_LOGI(TAG, ">>> device_action JSON: %s", json_str ? json_str : "null");
+            if (json_str) cJSON_free(json_str);
             HandleDeviceAction(root);
         } else {
             ESP_LOGW(TAG, "Unknown message type: %s", type->valuestring);
@@ -1195,9 +1198,12 @@ void Application::HandlePlayScene(const cJSON* root) {
     // 2. Execute on main loop
     auto display = Board::GetInstance().GetDisplay();
     Schedule([this, display, scene, emo, gest, need_reply, reply_act]() {
-        // 2.1 Send gesture to STM32 (I2C)
+        // 2.1 Send gesture to STM32 (I2C) - TEMP DISABLED FOR TEST
+        // if (!gest.empty()) {
+        //     SendGestureToSTM32(gest.c_str());
+        // }
         if (!gest.empty()) {
-            SendGestureToSTM32(gest.c_str());
+            ESP_LOGI(TAG, "Gesture skipped (disabled): %s", gest.c_str());
         }
 
         // 2.2 Change emoji (from /dodomio/emoji/<emoji>.png)
@@ -1211,12 +1217,23 @@ void Application::HandlePlayScene(const cJSON* root) {
             
             // Set callback to reply when audio finishes
             if (need_reply && !reply_act.empty()) {
-                audio_service_.SetPlaybackFinishedCallback([this, reply_act]() {
-                    SendSceneDoneReply(reply_act.c_str());
+                auto reply_str = std::string(reply_act);
+                audio_service_.SetPlaybackFinishedCallback([this, reply_str]() {
+                    SendSceneDoneReply(reply_str.c_str());
                 });
             }
             
             audio_service_.PlayFile(audio_path.c_str());
+            
+            // Also try to reply (works even if audio fails or no SD card)
+            if (need_reply && !reply_act.empty()) {
+                ESP_LOGI(TAG, "Scene reply scheduled: %s", reply_act.c_str());
+                Schedule([this, reply_act]() {
+                    // Try to send reply - may fail if not connected, but code runs
+                    ESP_LOGI(TAG, "Sending scene_done reply: %s", reply_act.c_str());
+                    SendSceneDoneReply(reply_act.c_str());
+                });
+            }
         } else if (need_reply && !reply_act.empty()) {
             // No audio, reply immediately
             SendSceneDoneReply(reply_act.c_str());
@@ -1242,7 +1259,12 @@ auto display = Board::GetInstance().GetDisplay();
         display->SetEmotion(emo.c_str());
         
         // Send gesture stop command
-        SendGestureToSTM32(gest.c_str());
+        if (!gest.empty()) {
+            ESP_LOGI(TAG, "Gesture skipped (disabled): %s", gest.c_str());
+        }
+        // if (!gest.empty()) {
+        //     SendGestureToSTM32(gest.c_str());
+        // }
     });
 }
 
@@ -1250,21 +1272,69 @@ void Application::SendGestureToSTM32(const char* gesture) {
     // STM32 I2C address (common addresses: 0x27, 0x28)
     static const uint8_t STM32_ADDR = 0x27;
     static const uint8_t REG_CMD = 0x00;
-    static const i2c_port_t I2C_PORT = I2C_NUM_0;
+    // Use static I2C device handle - initialized on first call
+    static i2c_master_dev_handle_t i2c_dev_handle = nullptr;
+    // Keep static bus handle to avoid recreating
+    static i2c_master_bus_handle_t i2c_bus_handle = nullptr;
 
     auto it = GESTURE_MAP.find(gesture);
     uint8_t cmd = (it != GESTURE_MAP.end()) ? it->second : 0x00;
 
-    // I2C write to STM32
-    i2c_cmd_handle_t cmd_handle = i2c_cmd_link_create();
-    i2c_master_start(cmd_handle);
-    i2c_master_write_byte(cmd_handle, (STM32_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd_handle, REG_CMD, true);
-    i2c_master_write_byte(cmd_handle, cmd, true);
-    i2c_master_stop(cmd_handle);
-    
-    esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd_handle, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd_handle);
+    // Try to get I2C bus from board (only on first call)
+    if (i2c_bus_handle == nullptr) {
+        auto& board = Board::GetInstance();
+        void* i2c_bus_ptr = board.GetI2cBus();
+        if (i2c_bus_ptr != nullptr) {
+            i2c_bus_handle = *(i2c_master_bus_handle_t*)i2c_bus_ptr;
+            ESP_LOGI(TAG, "Using I2C bus from board");
+        } else {
+            // Fallback: create new I2C bus
+            ESP_LOGW(TAG, "No I2C bus from board, creating new one");
+            i2c_master_bus_config_t i2c_bus_cfg = {
+                .i2c_port = I2C_NUM_0,
+                .sda_io_num = GPIO_NUM_8,
+                .scl_io_num = GPIO_NUM_9,
+                .clk_source = I2C_CLK_SRC_DEFAULT,
+                .glitch_ignore_cnt = 7,
+                .intr_priority = 0,
+                .trans_queue_depth = 0,
+                .flags = {
+                    .enable_internal_pullup = 1,
+                },
+            };
+            if (i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_handle) != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to create I2C bus");
+                return;
+            }
+        }
+    }
+
+    // If no valid bus, skip gesture
+    if (i2c_bus_handle == nullptr) {
+        ESP_LOGE(TAG, "No I2C bus available, skipping gesture");
+        return;
+    }
+
+    // Create I2C device handle if not already created
+    if (i2c_dev_handle == nullptr) {
+        i2c_device_config_t dev_cfg = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = STM32_ADDR,
+            .scl_speed_hz = 400 * 1000,
+            .scl_wait_us = 0,
+            .flags = {
+                .disable_ack_check = 0,
+            },
+        };
+        if (i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &i2c_dev_handle) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to create I2C device");
+            return;
+        }
+    }
+
+    // Send gesture command via I2C
+    uint8_t data[2] = { REG_CMD, cmd };
+    esp_err_t ret = i2c_master_transmit(i2c_dev_handle, data, sizeof(data), pdMS_TO_TICKS(100));
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Gesture sent: %s -> 0x%02X", gesture, cmd);
@@ -1294,4 +1364,3 @@ void Application::SendSceneDoneReply(const char* reply_action) {
         ESP_LOGE(TAG, "Failed to send scene_done: %s", reply_action);
     }
 }
-
