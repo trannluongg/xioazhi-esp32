@@ -22,6 +22,7 @@
 #include <esp_lcd_panel_rgb.h>
 
 #include "display/lvgl_display/lvgl_theme.h"
+#include "display/lvgl_display/lvgl_image.h"
 
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
@@ -348,14 +349,42 @@ private:
 
         // Extract name without extension for SetEmotion
         std::string emoji_name = selected.substr(0, selected.size() - 4);
-        std::string full_lv_path = "S:/dodomio/emoji/" + selected;
-        ESP_LOGI(TAG, "Emoji LVGL path: %s", full_lv_path.c_str());
+        std::string full_path = std::string(emoji_path) + "/" + selected;
+        
+        // Read GIF file into memory
+        FILE* f = fopen(full_path.c_str(), "rb");
+        if (!f) {
+            ESP_LOGE(TAG, "Failed to open emoji file: %s", full_path.c_str());
+            return;
+        }
+        
+        fseek(f, 0, SEEK_END);
+        long file_size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        
+        void* data = malloc(file_size);
+        if (!data) {
+            ESP_LOGE(TAG, "Failed to allocate memory for emoji");
+            fclose(f);
+            return;
+        }
+        
+        size_t bytes_read = fread(data, 1, file_size, f);
+        fclose(f);
+        
+        if (bytes_read != (size_t)file_size) {
+            ESP_LOGE(TAG, "Failed to read emoji file");
+            free(data);
+            return;
+        }
+        
+        ESP_LOGI(TAG, "Loaded emoji from SD: %s (%d bytes)", emoji_name.c_str(), (int)file_size);
         
         auto display = GetDisplay();
         if (display) {
             auto theme = static_cast<LvglTheme*>(display->GetTheme());
             if (theme && theme->emoji_collection()) {
-                theme->emoji_collection()->AddEmoji(emoji_name, new LvglFileImage(full_lv_path));
+                theme->emoji_collection()->AddEmoji(emoji_name, new LvglRawImage(data, file_size));
             }
             display->SetEmotion(emoji_name.c_str());
         }
