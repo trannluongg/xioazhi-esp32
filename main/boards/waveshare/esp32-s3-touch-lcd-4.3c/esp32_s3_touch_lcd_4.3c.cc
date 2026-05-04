@@ -349,6 +349,13 @@ private:
 
         // Extract name without extension for SetEmotion
         std::string emoji_name = selected.substr(0, selected.size() - 4);
+        
+        // Normalize: to lowercase and ~ to _
+        for (char& c : emoji_name) {
+            if (c >= 'A' && c <= 'Z') c = c + 32;
+            if (c == '~') c = '_';
+        }
+        
         std::string full_path = std::string(emoji_path) + "/" + selected;
         
         // Read GIF file into memory
