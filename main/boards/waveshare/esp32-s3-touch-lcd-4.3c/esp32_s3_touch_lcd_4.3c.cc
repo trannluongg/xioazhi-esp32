@@ -20,6 +20,8 @@
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
+#include <driver/sdmmc_host.h>
+#include <esp_vfs_fat.h>
 
 #define TAG "WaveshareEsp32s3TouchLCD43c"
 
@@ -168,8 +170,22 @@ private:
             },
         };
         esp_lcd_panel_io_handle_t tp_io_handle = NULL;
-        esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
-        tp_io_config.scl_speed_hz = 400 * 1000;
+        // esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
+        // tp_io_config.scl_speed_hz = 400 * 1000;
+         esp_lcd_panel_io_i2c_config_t tp_io_config = {
+            .on_color_trans_done = NULL,
+            .user_ctx = NULL,
+            .control_phase_bytes = 1,
+            .dc_bit_offset = 0,
+            .lcd_cmd_bits = 16,
+            .lcd_param_bits = 16,
+            .flags = {
+                .dc_low_on_data = 0,
+                .disable_control_phase = 1,
+            }
+        };
+        tp_io_config.scl_speed_hz = 400000;
+        tp_io_config.dev_addr = 0x5D;
 
         esp_lcd_new_panel_io_i2c(i2c_bus_, &tp_io_config, &tp_io_handle);
 
@@ -194,6 +210,42 @@ private:
                 return true;
             });
     }
+    
+    // Mount SD card
+    void InitializeSDCard() {
+        #if defined(BSP_HAS_SD_CARD) && BSP_HAS_SD_CARD
+        ESP_LOGI(TAG, "Initializing SD card...");
+        
+        // Enable SDMMC power
+        sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+        host.flags = SDMMC_HOST_FLAG_4BIT | SDMMC_HOST_FLAG_DDR;
+        
+        sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+        
+        // Configure pins for SDMMC
+        slot_config.cmd = SDMMC_CMD;
+        slot_config.clk = SDMMC_CLK;
+        slot_config.d0 = SDMMC_D0;
+        slot_config.d1 = SDMMC_D1;
+        slot_config.d2 = SDMMC_D2;
+        slot_config.d3 = SDMMC_D3;
+        slot_config.width = 4;  // 4-bit mode
+        
+        esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+            .format_if_mount_failed = false,
+            .max_files = 5,
+            .allocation_unit_size = 0,
+        };
+        
+        sdmmc_card_t* card;
+        esp_err_t ret = esp_vfs_fat_sdmmc_mount(SD_BASE_PATH, &host, &slot_config, &mount_config, &card);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "SD card mounted at %s", SD_BASE_PATH);
+        } else {
+            ESP_LOGE(TAG, "Failed to mount SD card: %s", esp_err_to_name(ret));
+        }
+        #endif  // BSP_HAS_SD_CARD
+    }
 
 public:
     WaveshareEsp32s3TouchLCD43c() {
@@ -203,6 +255,7 @@ public:
         InitializeCustomio();
         InitializeRGB();
         InitializeTouch();
+        InitializeSDCard();
         InitializeTools();
         GetBacklight()->SetBrightness(100);
     }
@@ -237,6 +290,10 @@ public:
             power_save_timer_->WakeUp();
         }
         WifiBoard::SetPowerSaveLevel(level);
+    }
+
+    virtual void* GetI2cBus() override {
+        return (void*)i2c_bus_;
     }
 };
 

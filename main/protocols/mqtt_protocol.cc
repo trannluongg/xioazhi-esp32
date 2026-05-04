@@ -387,3 +387,11 @@ std::string MqttProtocol::DecodeHexString(const std::string& hex_string) {
 bool MqttProtocol::IsAudioChannelOpened() const {
     return udp_ != nullptr && !error_occurred_ && !IsTimeout();
 }
+
+bool MqttProtocol::IsConnected() const {
+    bool connected = mqtt_ != nullptr && mqtt_->IsConnected() && !error_occurred_ && !IsTimeout();
+    ESP_LOGI("MQTT", "IsConnected check: mqtt=%d, connected=%d, error=%d, timeout=%d, result=%d", 
+        mqtt_ != nullptr ? mqtt_->IsConnected() : 0,
+        !error_occurred_, !IsTimeout(), connected);
+    return connected;
+}

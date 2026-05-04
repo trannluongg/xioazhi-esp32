@@ -15,7 +15,12 @@ class EmojiCollection {
 public:
     virtual void AddEmoji(const std::string& name, LvglImage* image);
     virtual const LvglImage* GetEmojiImage(const char* name);
+    virtual const LvglImage* GetRandomVariant(const char* name);
     virtual ~EmojiCollection();
+
+    // Load all emojis from SD card folder
+    // Scans /sdcard/dodomio/emoji/ and loads all .gif files
+    void LoadFromSD(const char* base_path = "/sdcard/dodomio/emoji");
 
 private:
     std::map<std::string, LvglImage*> emoji_collection_;

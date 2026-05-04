@@ -21,6 +21,20 @@
 #define BSP_I2C_SCL             (GPIO_NUM_9)
 #define BSP_I2C_SDA             (GPIO_NUM_8)
 
+// SD Card SDMMC pins
+#define SDMMC_CMD GPIO_NUM_44
+#define SDMMC_CLK GPIO_NUM_43
+#define SDMMC_D0 GPIO_NUM_39
+#define SDMMC_D1 GPIO_NUM_40
+#define SDMMC_D2 GPIO_NUM_41
+#define SDMMC_D3 GPIO_NUM_42
+#define SD_BASE_PATH "/sdcard"
+
+// Enable SD card
+#ifndef BSP_HAS_SD_CARD
+#define BSP_HAS_SD_CARD 1
+#endif
+
 #define BSP_CODEC_ES8311_ADDR  ES8311_CODEC_DEFAULT_ADDR
 #define BSP_CODEC_ES7210_ADDR  ES7210_CODEC_DEFAULT_ADDR
 
