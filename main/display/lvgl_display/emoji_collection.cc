@@ -105,6 +105,12 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
         // Extract name without extension: happy_01.gif → "happy_01"
         std::string name(entry->d_name, ext - entry->d_name);
         
+        // Convert to lowercase for consistency: "RELAXE~1" → "relaxed_01"
+        for (char& c : name) {
+            if (c >= 'A' && c <= 'Z') c = c + 32;
+            if (c == '~') c = '_';  // Fix ~ to _
+        }
+        
         // Create image and add to collection with exact name
         LvglRawImage* image = new LvglRawImage(data, st.st_size);
         AddEmoji(name, image);
