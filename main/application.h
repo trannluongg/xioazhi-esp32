@@ -177,7 +177,7 @@ private:
     void HandlePlayScene(const cJSON* root);
     void HandleStopScene(const cJSON* root);
     void SendGestureToSTM32(const char* gesture);
-    void SendSceneDoneReply(const char* reply_action);
+    void SendSceneDoneReply(const char* reply_action, const char* req_id = nullptr);
 
 };
 

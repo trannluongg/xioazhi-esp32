@@ -5,9 +5,7 @@
 #include <esp_vfs_fat.h>
 #include <sys/stat.h>
 #include <dirent.h>
-#include <vector>
 #include <cstring>
-#include <unordered_map>
 
 static const char *TAG = "EmojiCollection";
 
@@ -23,6 +21,16 @@ const LvglImage* EmojiCollection::GetEmojiImage(const char* name) {
 
     ESP_LOGW(TAG, "Emoji not found: %s", name);
     return nullptr;
+}
+
+const LvglImage* EmojiCollection::GetRandomVariant(const char* name) {
+    // Server luôn gửi exact name (happy_01, happy_02, etc.)
+    // Nên chỉ cần load exact name, không random
+    auto image = GetEmojiImage(name);
+    if (image == nullptr) {
+        ESP_LOGW(TAG, "Emoji not found: %s", name);
+    }
+    return image;
 }
 
 EmojiCollection::~EmojiCollection() {
@@ -93,10 +101,10 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
             continue;
         }
         
-        // Extract name without extension
+        // Extract name without extension: happy_01.gif → "happy_01"
         std::string name(entry->d_name, ext - entry->d_name);
         
-        // Create image and add to collection
+        // Create image and add to collection with exact name
         LvglRawImage* image = new LvglRawImage(data, st.st_size);
         AddEmoji(name, image);
         

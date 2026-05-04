@@ -1090,7 +1090,8 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     }
 
     auto emoji_collection = static_cast<LvglTheme*>(current_theme_)->emoji_collection();
-    auto image = emoji_collection != nullptr ? emoji_collection->GetEmojiImage(emotion) : nullptr;
+    // Dùng GetRandomVariant để hỗ trợ random variant (happy_01, happy_02, ...)
+    auto image = emoji_collection != nullptr ? emoji_collection->GetRandomVariant(emotion) : nullptr;
     if (image == nullptr) {
         const char* utf8 = font_awesome_get_utf8(emotion);
         if (utf8 != nullptr && emoji_label_ != nullptr) {
