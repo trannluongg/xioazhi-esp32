@@ -70,9 +70,13 @@ LcdDisplay::LcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_
     // Initialize LCD themes
     InitializeLcdThemes();
 
-    // Load theme from settings
+    // Load theme from settings, default to dark
     Settings settings("display", false);
     std::string theme_name = settings.GetString("theme", "dark");
+    
+    // Force dark theme for this board
+    theme_name = "dark";
+    
     current_theme_ = LvglThemeManager::GetInstance().GetTheme(theme_name);
 
     // Create a timer to hide the preview image
