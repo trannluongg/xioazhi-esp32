@@ -673,7 +673,15 @@ void Application::DismissAlert() {
     if (GetDeviceState() == kDeviceStateIdle) {
         auto display = Board::GetInstance().GetDisplay();
         display->SetStatus(Lang::Strings::STANDBY);
-        display->SetEmotion("neutral");
+        // Only set neutral if no SD card emoji was loaded
+        auto theme = display->GetTheme();
+        bool has_sd_emoji = false;
+        if (theme && theme->emoji_collection()) {
+            has_sd_emoji = (theme->emoji_collection()->GetEmojiImage("default") != nullptr);
+        }
+        if (!has_sd_emoji) {
+            display->SetEmotion("neutral");
+        }
         display->SetChatMessage("system", "");
     }
 }
@@ -882,13 +890,33 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateIdle:
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();  // Clear messages first
-            display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
+            // Only set neutral if no SD card emoji was loaded
+            {
+                auto theme = display->GetTheme();
+                bool has_sd_emoji = false;
+                if (theme && theme->emoji_collection()) {
+                    has_sd_emoji = (theme->emoji_collection()->GetEmojiImage("default") != nullptr);
+                }
+                if (!has_sd_emoji) {
+                    display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
+                }
+            }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
-            display->SetEmotion("neutral");
+            // Keep SD emoji if loaded, otherwise neutral
+            {
+                auto theme = display->GetTheme();
+                bool has_sd_emoji = false;
+                if (theme && theme->emoji_collection()) {
+                    has_sd_emoji = (theme->emoji_collection()->GetEmojiImage("default") != nullptr);
+                }
+                if (!has_sd_emoji) {
+                    display->SetEmotion("neutral");
+                }
+            }
             display->SetChatMessage("system", "");
             break;
         case kDeviceStateListening:
