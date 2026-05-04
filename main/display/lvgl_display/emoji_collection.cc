@@ -54,7 +54,7 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
     
     struct dirent* entry;
     int loaded_count = 0;
-    const int MAX_EMOJIS = 10;  // Increase if files are small (<50KB each)
+    const int MAX_EMOJIS = 1;  // Only load default at startup, others on-demand
     
     // Scan all files in directory
     while ((entry = readdir(dir)) != nullptr) {
