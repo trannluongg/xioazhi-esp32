@@ -9,7 +9,6 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
-#include "sd_card_utils.h"
 
 #include <cstring>
 #include <esp_log.h>
@@ -400,10 +399,6 @@ void Application::CheckAssetsVersion() {
     // Sau khi assets.Apply() đã tạo emoji_collection
     auto theme = display->GetTheme();
     if (theme && theme->emoji_collection()) {
-        // Debug: Kiểm tra SD mount
-        IsSDCardMounted();
-        ListSDCardFiles("dodomio/emoji");
-        
         theme->emoji_collection()->LoadFromSD("/sdcard/dodomio/emoji");
     } else {
         ESP_LOGE(TAG, "emoji_collection is NULL!");
