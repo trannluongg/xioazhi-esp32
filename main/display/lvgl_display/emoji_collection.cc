@@ -120,6 +120,17 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
     }
     
     closedir(dir);
+    
+    // Add "default" alias to first loaded emoji
+    if (loaded_count > 0) {
+        // Find first loaded emoji and add alias
+        for (auto& pair : emoji_collection_) {
+            emoji_collection_["default"] = pair.second;
+            ESP_LOGI(TAG, "Added 'default' alias to: %s", pair.first.c_str());
+            break;
+        }
+    }
+    
     ESP_LOGI(TAG, "Loaded %d emojis from SD", loaded_count);
 }
 
