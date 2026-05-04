@@ -68,13 +68,6 @@ void Application::Initialize() {
     auto display = board.GetDisplay();
     display->SetupUI();
     
-    // Load emojis from SD card (/sdcard/dodomio/emoji/)
-    // This loads all .gif files into emoji_collection for SetEmotion()
-    auto theme = display->GetTheme();
-    if (theme && theme->emoji_collection()) {
-        theme->emoji_collection()->LoadFromSD("/sdcard/dodomio/emoji");
-    }
-    
     // Print board name/version info
     display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
 
@@ -401,8 +394,16 @@ void Application::CheckAssetsVersion() {
 
     // Apply assets
     assets.Apply();
+    
+    // Load emojis from SD card (/sdcard/dodomio/emoji/)
+    // Sau khi assets.Apply() đã tạo emoji_collection
+    auto theme = display->GetTheme();
+    if (theme && theme->emoji_collection()) {
+        theme->emoji_collection()->LoadFromSD("/sdcard/dodomio/emoji");
+    }
+    
     display->SetChatMessage("system", "");
-    display->SetEmotion("microchip_ai");
+    display->SetEmotion("default");  // Từ SD card
 }
 
 void Application::CheckNewVersion() {
@@ -1185,19 +1186,21 @@ void Application::HandlePlayScene(const cJSON* root) {
     auto gesture = cJSON_GetObjectItem(root, "gesture");
     auto reply = cJSON_GetObjectItem(root, "reply");
     auto reply_action = cJSON_GetObjectItem(root, "reply_action");
+    auto req_id = cJSON_GetObjectItem(root, "req_id");
 
     std::string scene = scene_tag ? scene_tag->valuestring : "";
     std::string emo = emoji ? emoji->valuestring : "";
     std::string gest = gesture ? gesture->valuestring : "";
     bool need_reply = reply ? reply->valueint : false;
     std::string reply_act = reply_action ? reply_action->valuestring : "";
+    std::string req_id_str = req_id ? req_id->valuestring : "";
 
     ESP_LOGI(TAG, "Play scene: %s, emoji: %s, gesture: %s, reply: %d", 
              scene.c_str(), emo.c_str(), gest.c_str(), need_reply);
 
     // 2. Execute on main loop
     auto display = Board::GetInstance().GetDisplay();
-    Schedule([this, display, scene, emo, gest, need_reply, reply_act]() {
+    Schedule([this, display, scene, emo, gest, need_reply, reply_act, req_id_str]() {
         // 2.1 Send gesture to STM32 (I2C) - TEMP DISABLED FOR TEST
         // if (!gest.empty()) {
         //     SendGestureToSTM32(gest.c_str());
@@ -1218,8 +1221,9 @@ void Application::HandlePlayScene(const cJSON* root) {
             // Set callback to reply when audio finishes
             if (need_reply && !reply_act.empty()) {
                 auto reply_str = std::string(reply_act);
-                audio_service_.SetPlaybackFinishedCallback([this, reply_str]() {
-                    SendSceneDoneReply(reply_str.c_str());
+                auto req_id = std::string(req_id_str);
+                audio_service_.SetPlaybackFinishedCallback([this, reply_str, req_id]() {
+                    SendSceneDoneReply(reply_str.c_str(), req_id.empty() ? nullptr : req_id.c_str());
                 });
             }
             
@@ -1227,16 +1231,18 @@ void Application::HandlePlayScene(const cJSON* root) {
             
             // Also try to reply (works even if audio fails or no SD card)
             if (need_reply && !reply_act.empty()) {
-                ESP_LOGI(TAG, "Scene reply scheduled: %s", reply_act.c_str());
-                Schedule([this, reply_act]() {
+                auto reply_str = std::string(reply_act);
+                auto req_id = std::string(req_id_str);
+                ESP_LOGI(TAG, "Scene reply scheduled: %s, req_id: %s", reply_str.c_str(), req_id.c_str());
+                Schedule([this, reply_str, req_id]() {
                     // Try to send reply - may fail if not connected, but code runs
-                    ESP_LOGI(TAG, "Sending scene_done reply: %s", reply_act.c_str());
-                    SendSceneDoneReply(reply_act.c_str());
+                    ESP_LOGI(TAG, "Sending scene_done reply: %s, req_id: %s", reply_str.c_str(), req_id.c_str());
+                    SendSceneDoneReply(reply_str.c_str(), req_id.empty() ? nullptr : req_id.c_str());
                 });
             }
         } else if (need_reply && !reply_act.empty()) {
             // No audio, reply immediately
-            SendSceneDoneReply(reply_act.c_str());
+            SendSceneDoneReply(reply_act.c_str(), req_id_str.empty() ? nullptr : req_id_str.c_str());
         }
     });
 }
@@ -1343,7 +1349,7 @@ void Application::SendGestureToSTM32(const char* gesture) {
     }
 }
 
-void Application::SendSceneDoneReply(const char* reply_action) {
+void Application::SendSceneDoneReply(const char* reply_action, const char* req_id) {
     if (!protocol_ || !protocol_->IsConnected()) {
         ESP_LOGW(TAG, "Protocol not connected, cannot send scene_done");
         return;
@@ -1353,13 +1359,18 @@ void Application::SendSceneDoneReply(const char* reply_action) {
     cJSON_AddStringToObject(root, "type", "scene_done");
     cJSON_AddStringToObject(root, "reply_action", reply_action);
     
+    // Add req_id if provided (for Audio Waiting Flow correlation)
+    if (req_id != nullptr) {
+        cJSON_AddStringToObject(root, "req_id", req_id);
+    }
+    
     auto* json_str = cJSON_PrintUnformatted(root);
     std::string message(json_str);
     cJSON_free(json_str);
     cJSON_Delete(root);
 
     if (protocol_->SendText(message)) {
-        ESP_LOGI(TAG, "Scene done sent: %s", reply_action);
+        ESP_LOGI(TAG, "Scene done sent: %s, req_id: %s", reply_action, req_id ? req_id : "null");
     } else {
         ESP_LOGE(TAG, "Failed to send scene_done: %s", reply_action);
     }
