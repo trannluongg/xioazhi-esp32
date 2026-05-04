@@ -54,6 +54,7 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
     
     struct dirent* entry;
     int loaded_count = 0;
+    const int MAX_EMOJIS = 5;  // Limit to avoid memory exhaustion
     
     // Scan all files in directory
     while ((entry = readdir(dir)) != nullptr) {
@@ -109,6 +110,12 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
         AddEmoji(name, image);
         
         loaded_count++;
+        if (loaded_count >= MAX_EMOJIS) {
+            ESP_LOGW(TAG, "Reached max emojis limit (%d), stopping load", MAX_EMOJIS);
+            // Drain remaining directory entries before closing
+            while (readdir(dir) != nullptr) { }
+            break;
+        }
         ESP_LOGI(TAG, "Loaded emoji: %s (%d bytes)", name.c_str(), (int)st.st_size);
     }
     
