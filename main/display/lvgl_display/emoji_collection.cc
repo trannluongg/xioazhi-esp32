@@ -125,14 +125,43 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
         ESP_LOGI(TAG, "Loaded emoji: %s (%d bytes)", name.c_str(), (int)st.st_size);
     }
     
+    // If default.gif exists in directory but wasn't loaded, load it
+    if (loaded_count > 0 && loaded_count < MAX_EMOJIS) {
+        char default_path[512];
+        snprintf(default_path, sizeof(default_path), "%s/default.gif", base_path);
+        struct stat st_default;
+        if (stat(default_path, &st_default) == 0) {
+            // Load default.gif
+            FILE* f = fopen(default_path, "rb");
+            if (f) {
+                void* data = malloc(st_default.st_size);
+                if (data) {
+                    size_t bytes_read = fread(data, 1, st_default.st_size, f);
+                    fclose(f);
+                    if (bytes_read == (size_t)st_default.st_size) {
+                        emoji_collection_["default"] = new LvglRawImage(data, st_default.st_size);
+                        ESP_LOGI(TAG, "Added 'default' alias from file");
+                        loaded_count++;
+                    } else {
+                        free(data);
+                    }
+                } else {
+                    fclose(f);
+                }
+            }
+        }
+    }
+    
     closedir(dir);
     
-    // Add "default" alias to first loaded emoji
+    // Also add alias if not already added
     if (loaded_count > 0) {
         // Find first loaded emoji and add alias
         for (auto& pair : emoji_collection_) {
-            emoji_collection_["default"] = pair.second;
-            ESP_LOGI(TAG, "Added 'default' alias to: %s", pair.first.c_str());
+            if (pair.first != "default") {
+                emoji_collection_["default"] = pair.second;
+                ESP_LOGI(TAG, "Added 'default' alias to: %s", pair.first.c_str());
+            }
             break;
         }
     }
