@@ -75,15 +75,6 @@ bool WebsocketProtocol::IsAudioChannelOpened() const {
     return websocket_ != nullptr && websocket_->IsConnected() && !error_occurred_ && !IsTimeout();
 }
 
-bool WebsocketProtocol::IsConnected() const {
-    bool connected = websocket_ != nullptr && websocket_->IsConnected() && !error_occurred_ && !IsTimeout();
-    ESP_LOGI(TAG, "IsConnected check: ws=%d, connected=%d, error=%d, timeout=%d, result=%d", 
-        websocket_ != nullptr ? websocket_->IsConnected() : 0,
-        !error_occurred_, !IsTimeout(), connected);
-        
-    return connected;
-}
-
 void WebsocketProtocol::CloseAudioChannel(bool send_goodbye) {
     (void)send_goodbye;  // Websocket doesn't need to send goodbye message
     websocket_.reset();

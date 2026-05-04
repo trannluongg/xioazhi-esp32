@@ -1,10 +1,6 @@
 #include "audio_service.h"
 #include <esp_log.h>
 #include <cstring>
-#include <vector>
-#include <esp_vfs.h>
-#include <esp_vfs_fat.h>
-#include <sys/stat.h>
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)        \
     (esp_ae_rate_cvt_cfg_t)                                  \
@@ -145,7 +141,7 @@ void AudioService::Start() {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
         vTaskDelete(NULL);
-    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
+    }, "audio_output", 2048 * 2, this, 5, &audio_output_task_handle_);
 #else
     /* Start the audio input task */
     xTaskCreate([](void* arg) {
@@ -159,7 +155,7 @@ void AudioService::Start() {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
         vTaskDelete(NULL);
-    }, "audio_output", 2048, this, 4, &audio_output_task_handle_);
+    }, "audio_output", 2048, this, 5, &audio_output_task_handle_);
 #endif
 
     /* Start the opus codec task */
@@ -167,7 +163,7 @@ void AudioService::Start() {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->OpusCodecTask();
         vTaskDelete(NULL);
-    }, "opus_codec", 2048 * 12, this, 2, &opus_codec_task_handle_);
+    }, "opus_codec", 2048 * 12, this, 4, &opus_codec_task_handle_);
 }
 
 void AudioService::Stop() {
@@ -301,10 +297,6 @@ void AudioService::AudioOutputTask() {
 
         auto task = std::move(audio_playback_queue_.front());
         audio_playback_queue_.pop_front();
-        
-        // Check if this was the last item - trigger callback if needed
-        bool was_empty = audio_playback_queue_.empty() && audio_decode_queue_.empty();
-        
         audio_queue_cv_.notify_all();
         lock.unlock();
 
@@ -319,13 +311,6 @@ void AudioService::AudioOutputTask() {
         /* Update the last output time */
         last_output_time_ = std::chrono::steady_clock::now();
         debug_statistics_.playback_count++;
-
-        // Trigger playback finished callback when all queues are empty
-        // Only trigger for SD card playback (PlayFile), not server streaming
-        if (was_empty && is_playing_from_sdcard_ && callbacks_.on_playback_finished) {
-            is_playing_from_sdcard_ = false;  // Reset flag
-            callbacks_.on_playback_finished();
-        }
 
 #if CONFIG_USE_SERVER_AEC
         /* Record the timestamp for server AEC */
@@ -645,20 +630,6 @@ void AudioService::SetCallbacks(AudioServiceCallbacks& callbacks) {
     callbacks_ = callbacks;
 }
 
-void AudioService::SetPlaybackFinishedCallback(std::function<void(void)> callback) {
-    callbacks_.on_playback_finished = callback;
-}
-
-void AudioService::StopPlayback() {
-    // Stop only playback queues, keep encoding/wake word working
-    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
-    audio_playback_queue_.clear();
-    audio_decode_queue_.clear();
-    is_playing_from_sdcard_ = false;  // Reset SD card flag
-    audio_queue_cv_.notify_all();
-    ESP_LOGI(TAG, "Playback stopped (queues cleared)");
-}
-
 void AudioService::PlaySound(const std::string_view& ogg) {
     if (!codec_->output_enabled()) {
         esp_timer_stop(audio_power_timer_);
@@ -760,73 +731,4 @@ bool AudioService::IsAfeWakeWord() {
 #else
     return false;
 #endif
-}
-
-void AudioService::PlayFile(const char* file_path) {
-    
-    // Mark as playing from SD card (for callback filtering)
-    is_playing_from_sdcard_ = true;
-    
-    // Check if file exists
-    struct stat st;
-    if (stat(file_path, &st) != 0) {
-        ESP_LOGW(TAG, "File not found: %s", file_path);
-        return;
-    }
-    
-    // Open file
-    FILE* f = fopen(file_path, "rb");
-    if (!f) {
-        ESP_LOGW(TAG, "Failed to open file: %s", file_path);
-        return;
-    }
-    
-    // Enable output if not enabled
-    if (!codec_->output_enabled()) {
-        codec_->EnableOutput(true);
-    }
-    
-    // Read WAV file header (44 bytes)
-    uint8_t header[44];
-    if (fread(header, 1, 44, f) != 44) {
-        ESP_LOGW(TAG, "Failed to read WAV header");
-        fclose(f);
-        return;
-    }
-    
-    // Verify WAV format (RIFF header)
-    if (header[0] != 'R' || header[1] != 'I' || header[2] != 'F' || header[3] != 'F') {
-        ESP_LOGW(TAG, "Not a valid WAV file");
-        fclose(f);
-        return;
-    }
-    
-    // Get sample rate from WAV header (offset 24)
-    int sample_rate = (header[24] | (header[25] << 8) | (header[26] << 16) | (header[27] << 24));
-    int channels = (header[22] | (header[23] << 8));
-    int bits_per_sample = (header[34] | (header[35] << 8));
-    
-    ESP_LOGI(TAG, "Playing WAV: %s, SR=%d, Ch=%d, Bits=%d", file_path, sample_rate, channels, bits_per_sample);
-    
-    // Read and play audio data in chunks
-    const int buffer_size = 4096;
-    std::vector<uint8_t> buffer(buffer_size);
-    
-    while (true) {
-        size_t bytes_read = fread(buffer.data(), 1, buffer_size, f);
-        if (bytes_read == 0) break;
-        
-        // Create audio packet
-        auto packet = std::make_unique<AudioStreamPacket>();
-        packet->sample_rate = sample_rate;
-        packet->frame_duration = 60;
-        packet->payload.resize(bytes_read);
-        std::memcpy(packet->payload.data(), buffer.data(), bytes_read);
-        
-        // Push to decode queue
-        PushPacketToDecodeQueue(std::move(packet), true);
-    }
-    
-    fclose(f);
-    ESP_LOGI(TAG, "WAV playback started: %s", file_path);
 }

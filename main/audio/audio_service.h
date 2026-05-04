@@ -38,7 +38,7 @@
 
 #define OPUS_FRAME_DURATION_MS 60
 #define MAX_ENCODE_TASKS_IN_QUEUE 2
-#define MAX_PLAYBACK_TASKS_IN_QUEUE 2
+#define MAX_PLAYBACK_TASKS_IN_QUEUE 15
 #define MAX_DECODE_PACKETS_IN_QUEUE (2400 / OPUS_FRAME_DURATION_MS)
 #define MAX_SEND_PACKETS_IN_QUEUE (2400 / OPUS_FRAME_DURATION_MS)
 #define AUDIO_TESTING_MAX_DURATION_MS 10000
@@ -80,7 +80,6 @@ struct AudioServiceCallbacks {
     std::function<void(const std::string&)> on_wake_word_detected;
     std::function<void(bool)> on_vad_change;
     std::function<void(void)> on_audio_testing_queue_full;
-    std::function<void(void)> on_playback_finished;  // Called when playback queue becomes empty
 };
 
 
@@ -131,15 +130,9 @@ public:
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
-    void PlayFile(const char* file_path);  // Play WAV file from SD card
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void SetModelsList(srmodel_list_t* models_list);
-    void SetPlaybackFinishedCallback(std::function<void(void)> callback);  // Set callback for playback finished (SD card only)
-    void StopPlayback();  // Stop only playback (keep encoding/wake word working)
-
-    // Track if current playback is from SD card (PlayFile)
-    bool is_playing_from_sdcard_ = false;
 
 private:
     AudioCodec* codec_ = nullptr;

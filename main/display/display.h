@@ -1,7 +1,7 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
-#include "lvgl_display/emoji_collection.h"
+#include "emoji_collection.h"
 
 #ifndef CONFIG_USE_EMOTE_MESSAGE_STYLE
 #define HAVE_LVGL 1
@@ -14,10 +14,6 @@
 
 #include <string>
 #include <chrono>
-#include <memory>
-
-// Forward declaration
-class EmojiCollection;
 
 class Theme {
 public:
@@ -25,10 +21,6 @@ public:
     virtual ~Theme() = default;
 
     inline std::string name() const { return name_; }
-    
-    // Virtual method for emoji collection - override in LvglTheme
-    virtual std::shared_ptr<EmojiCollection> emoji_collection() const { return nullptr; }
-
 private:
     std::string name_;
 };

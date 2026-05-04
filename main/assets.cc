@@ -7,8 +7,14 @@
 #include "expression_emote.h"
 #if HAVE_LVGL
 #include "display/lcd_display.h"
+#include "display/lvgl_display/emoji_collection.h"
+#include "display/lvgl_display/lvgl_image.h"
 #include <spi_flash_mmap.h>
 #endif
+
+#include <cJSON.h>
+#include <string>
+#include <vector>
 
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -212,6 +218,51 @@ bool Assets::LvglStrategy::GetAssetData(Assets* assets, const std::string& name,
 }
 
 bool Assets::LvglStrategy::Apply(Assets* assets) {
+    // Try to load emoji collection from SD card first
+    FILE* f_sd = fopen("/sdcard/emoji/index.json", "r");
+    if (f_sd != nullptr) {
+        fseek(f_sd, 0, SEEK_END);
+        long fsize = ftell(f_sd);
+        fseek(f_sd, 0, SEEK_SET);
+        char* buf = (char*)malloc(fsize + 1);
+        if (buf) {
+            fread(buf, 1, fsize, f_sd);
+            buf[fsize] = 0;
+            fclose(f_sd);
+
+            cJSON* root_sd = cJSON_Parse(buf);
+            free(buf);
+            if (root_sd) {
+                cJSON* emoji_collection = cJSON_GetObjectItem(root_sd, "emoji_collection");
+                if (cJSON_IsArray(emoji_collection)) {
+                    auto custom_emoji_collection = std::make_shared<EmojiCollection>();
+                    int emoji_count = cJSON_GetArraySize(emoji_collection);
+                    for (int i = 0; i < emoji_count; i++) {
+                        cJSON* emoji = cJSON_GetArrayItem(emoji_collection, i);
+                        if (cJSON_IsObject(emoji)) {
+                            cJSON* name = cJSON_GetObjectItem(emoji, "name");
+                            cJSON* file = cJSON_GetObjectItem(emoji, "file");
+                            if (cJSON_IsString(name) && cJSON_IsString(file)) {
+                                std::string path = "S:/emoji/";
+                                path += file->valuestring;
+                                custom_emoji_collection->AddEmoji(name->valuestring, new LvglFileImage(path));
+                            }
+                        }
+                    }
+                    auto& theme_manager = LvglThemeManager::GetInstance();
+                    auto light_theme = theme_manager.GetTheme("light");
+                    auto dark_theme = theme_manager.GetTheme("dark");
+                    if (light_theme) light_theme->set_emoji_collection(custom_emoji_collection);
+                    if (dark_theme) dark_theme->set_emoji_collection(custom_emoji_collection);
+                    ESP_LOGI(TAG, "Loaded %d emojis from SD card", emoji_count);
+                }
+                cJSON_Delete(root_sd);
+            }
+        } else {
+            fclose(f_sd);
+        }
+    }
+
     void* ptr = nullptr;
     size_t size = 0;
     if (!assets->GetAssetData("index.json", ptr, size)) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lvgl.h>
+#include <string>
 
 
 // Wrap around lv_img_dsc_t
@@ -46,8 +47,21 @@ public:
     LvglAllocatedImage(void* data, size_t size);
     LvglAllocatedImage(void* data, size_t size, int width, int height, int stride, int color_format);
     virtual ~LvglAllocatedImage();
-    virtual const lv_img_dsc_t* image_dsc() const override { return &image_dsc_; }
+    virtual const lv_image_dsc_t* image_dsc() const override { return &image_dsc_; }
 
 private:
-    lv_img_dsc_t image_dsc_;
+    lv_image_dsc_t image_dsc_;
+};
+
+class LvglFileImage : public LvglImage {
+public:
+    LvglFileImage(const std::string& path) : path_(path) {}
+    virtual const lv_image_dsc_t* image_dsc() const override { return nullptr; }
+    virtual bool IsGif() const override { 
+        return path_.find(".gif") != std::string::npos || path_.find(".GIF") != std::string::npos;
+    }
+    const std::string& path() const { return path_; }
+
+private:
+    std::string path_;
 };

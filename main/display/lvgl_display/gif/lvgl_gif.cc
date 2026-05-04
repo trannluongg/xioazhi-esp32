@@ -1,12 +1,15 @@
 #include "lvgl_gif.h"
 #include <esp_log.h>
+#include <esp_heap_caps.h>
 #include <cstring>
+#include <sys/stat.h>
 
 #define TAG "LvglGif"
 
 LvglGif::LvglGif(const lv_img_dsc_t* img_dsc)
     : gif_(nullptr), timer_(nullptr), last_call_(0), playing_(false), loaded_(false),
-      loop_delay_ms_(0), loop_waiting_(false), loop_wait_start_(0) {
+      loop_delay_ms_(0), loop_waiting_(false), loop_wait_start_(0),
+      psram_data_(nullptr), psram_data_size_(0) {
     if (!img_dsc || !img_dsc->data) {
         ESP_LOGE(TAG, "Invalid image descriptor");
         return;
@@ -38,6 +41,82 @@ LvglGif::LvglGif(const lv_img_dsc_t* img_dsc)
     ESP_LOGD(TAG, "GIF loaded from image descriptor: %dx%d", gif_->width, gif_->height);
 }
 
+LvglGif::LvglGif(const char* path)
+    : gif_(nullptr), timer_(nullptr), last_call_(0), playing_(false), loaded_(false),
+      loop_delay_ms_(0), loop_waiting_(false), loop_wait_start_(0),
+      psram_data_(nullptr), psram_data_size_(0) {
+    if (!path) {
+        ESP_LOGE(TAG, "Invalid GIF path");
+        return;
+    }
+
+    // Translate LVGL path (S:/...) to VFS path (/sdcard/...)
+    std::string vfs_path = path;
+    if (vfs_path.compare(0, 2, "S:") == 0) {
+        vfs_path.replace(0, 2, "/sdcard");
+    }
+
+    // Read entire file into PSRAM for performance
+    struct stat st;
+    if (stat(vfs_path.c_str(), &st) != 0) {
+        ESP_LOGE(TAG, "Failed to stat GIF file: %s (translated: %s)", path, vfs_path.c_str());
+        return;
+    }
+
+    psram_data_size_ = st.st_size;
+    psram_data_ = (uint8_t*)heap_caps_malloc(psram_data_size_, MALLOC_CAP_SPIRAM);
+    if (!psram_data_) {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes in PSRAM for GIF", psram_data_size_);
+        return;
+    }
+
+    FILE* f = fopen(vfs_path.c_str(), "rb");
+    if (!f) {
+        ESP_LOGE(TAG, "Failed to open GIF file: %s", vfs_path.c_str());
+        heap_caps_free(psram_data_);
+        psram_data_ = nullptr;
+        return;
+    }
+
+    size_t read = fread(psram_data_, 1, psram_data_size_, f);
+    fclose(f);
+
+    if (read != psram_data_size_) {
+        ESP_LOGE(TAG, "Failed to read entire GIF file: %s", vfs_path.c_str());
+        heap_caps_free(psram_data_);
+        psram_data_ = nullptr;
+        return;
+    }
+
+    gif_ = gd_open_gif_data(psram_data_);
+    if (!gif_) {
+        ESP_LOGE(TAG, "Failed to open GIF from PSRAM cache: %s", vfs_path.c_str());
+        heap_caps_free(psram_data_);
+        psram_data_ = nullptr;
+        return;
+    }
+
+    // Setup LVGL image descriptor
+    memset(&img_dsc_, 0, sizeof(img_dsc_));
+    img_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+    img_dsc_.header.flags = LV_IMAGE_FLAGS_MODIFIABLE;
+    img_dsc_.header.cf = LV_COLOR_FORMAT_ARGB8888;
+    img_dsc_.header.w = gif_->width;
+    img_dsc_.header.h = gif_->height;
+    img_dsc_.header.stride = gif_->width * 4;
+    img_dsc_.data = gif_->canvas;
+    img_dsc_.data_size = gif_->width * gif_->height * 4;
+
+    // Render first frame
+    if (gif_->canvas) {
+        gd_render_frame(gif_, gif_->canvas);
+    }
+
+    loaded_ = true;
+    ESP_LOGI(TAG, "GIF loaded and cached in PSRAM: %s (%dx%d, %d bytes)", 
+             path, gif_->width, gif_->height, psram_data_size_);
+}
+
 // Destructor
 LvglGif::~LvglGif() {
     Cleanup();
@@ -62,7 +141,7 @@ void LvglGif::Start() {
         timer_ = lv_timer_create([](lv_timer_t* timer) {
             LvglGif* gif_obj = static_cast<LvglGif*>(lv_timer_get_user_data(timer));
             gif_obj->NextFrame();
-        }, 10, this);
+        }, 5, this); // Faster polling (5ms) for smoother timing
     }
 
     if (timer_) {
@@ -242,6 +321,13 @@ void LvglGif::Cleanup() {
     if (gif_) {
         gd_close_gif(gif_);
         gif_ = nullptr;
+    }
+
+    // Free PSRAM cache if it exists
+    if (psram_data_) {
+        heap_caps_free(psram_data_);
+        psram_data_ = nullptr;
+        psram_data_size_ = 0;
     }
 
     playing_ = false;

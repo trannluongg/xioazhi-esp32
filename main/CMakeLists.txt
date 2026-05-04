@@ -23,6 +23,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/lvgl_display/lvgl_font.cc"
             "display/lvgl_display/lvgl_image.cc"
             "display/lvgl_display/gif/lvgl_gif.cc"
+            "display/lvgl_display/lvgl_fs.cc"
             "display/lvgl_display/gif/gifdec.c"
             "display/lvgl_display/jpg/image_to_jpeg.cpp"
             "display/lvgl_display/jpg/jpeg_to_image.c"
@@ -255,13 +256,13 @@ elseif(CONFIG_BOARD_TYPE_ESP_HI)
     set(BOARD_TYPE "esp-hi")
     # Set ESP_HI emoji directory for DEFAULT_ASSETS_EXTRA_FILES
     set(DEFAULT_ASSETS_EXTRA_FILES "${CMAKE_BINARY_DIR}/emoji")
-elseif(CONFIG_BOARD_TYPE_ECHOEAR)
-    set(BOARD_TYPE "echoear")
+elseif(CONFIG_BOARD_TYPE_ESP_VOCAT)
+    set(BOARD_TYPE "esp-vocat")
     set(BUILTIN_TEXT_FONT font_puhui_20_4)
     set(BUILTIN_ICON_FONT font_awesome_20_4)
     set(DEFAULT_EMOJI_COLLECTION twemoji_64)
     set(EMOTE_RESOLUTION "360_360")
-    # set(EMOTE_EXTERNAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/boards/echoear/assets")
+    # set(EMOTE_EXTERNAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/boards/esp-vocat/assets")
 elseif(CONFIG_BOARD_TYPE_ESP_SENSAIRSHUTTLE)
     set(BOARD_TYPE "esp-sensairshuttle")
     set(BUILTIN_TEXT_FONT font_puhui_basic_16_4)
@@ -371,6 +372,11 @@ elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_ePaper_1_54_v2)
     set(BOARD_TYPE "esp32-s3-epaper-1.54")
     set(BUILTIN_TEXT_FONT font_puhui_basic_20_4)
     set(BUILTIN_ICON_FONT font_awesome_20_4)
+elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_ePaper_3_97)
+    set(MANUFACTURER "waveshare")
+    set(BOARD_TYPE "esp32-s3-epaper-3.97")
+    set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
+    set(BUILTIN_ICON_FONT font_awesome_30_4)
 elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_S3_RLCD_4_2)
     set(MANUFACTURER "waveshare")
     set(BOARD_TYPE "esp32-s3-rlcd-4.2")
@@ -437,6 +443,11 @@ elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_3_4C)
     set(BUILTIN_ICON_FONT font_awesome_30_4)
     set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4C)
+    set(MANUFACTURER "waveshare")
+    set(BOARD_TYPE "esp32-p4-wifi6-touch-lcd")
+    set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
+    set(BUILTIN_ICON_FONT font_awesome_30_4)
+elseif(CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4_3C)
     set(MANUFACTURER "waveshare")
     set(BOARD_TYPE "esp32-p4-wifi6-touch-lcd")
     set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
@@ -912,6 +923,8 @@ idf_component_register(SRCS ${SOURCES}
                         efuse
                         bt
                         fatfs
+                        sdmmc
+                        vfs
                     )
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME

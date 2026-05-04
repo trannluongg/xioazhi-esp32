@@ -13,6 +13,7 @@
 class LvglGif {
 public:
     explicit LvglGif(const lv_img_dsc_t* img_dsc);
+    explicit LvglGif(const char* path);
     virtual ~LvglGif();
 
     // LvglImage interface implementation
@@ -104,6 +105,10 @@ private:
     
     // Frame update callback
     std::function<void()> frame_callback_;
+
+    // PSRAM cache for file-based GIFs
+    uint8_t* psram_data_ = nullptr;
+    size_t psram_data_size_ = 0;
     
     /**
      * Update to next frame

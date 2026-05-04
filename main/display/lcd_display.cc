@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "lvgl_theme.h"
 #include "assets/lang_config.h"
+#include "lvgl_display/lvgl_fs.h"
 
 #include <vector>
 #include <algorithm>
@@ -244,21 +245,29 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     lvgl_port_init(&port_cfg);
 
-    ESP_LOGI(TAG, "Adding LCD display");
+    lvgl_fs_register();
+
+    // When sw_rotate is used, hres/vres must be physical panel dimensions.
+    // width_/height_ represent the logical (post-rotation) dimensions.
+    // If swap_xy is true, the physical panel is portrait (height_ wide, width_ tall).
+    int phy_w = swap_xy ? height : width;
+    int phy_h = swap_xy ? width  : height;
+
+    ESP_LOGI(TAG, "Adding LCD display (physical %dx%d, logical %dx%d, swap_xy=%d)", phy_w, phy_h, width, height, swap_xy);
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = panel_io,
         .panel_handle = panel,
         .control_handle = nullptr,
-        .buffer_size = static_cast<uint32_t>(width_ * 50),
+        .buffer_size = static_cast<uint32_t>(phy_w * 50),
         .double_buffer = false,
-        .hres = static_cast<uint32_t>(width_),
-        .vres = static_cast<uint32_t>(height_),
+        .hres = static_cast<uint32_t>(phy_w),
+        .vres = static_cast<uint32_t>(phy_h),
         .monochrome = false,
         /* Rotation values must be same as used in esp_lcd for initial settings of the screen */
         .rotation = {
-            .swap_xy = swap_xy,
-            .mirror_x = mirror_x,
-            .mirror_y = mirror_y,
+            .swap_xy = false,
+            .mirror_x = false,
+            .mirror_y = false,
         },
         .flags = {
             .buff_dma = true,
@@ -278,10 +287,22 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
         return;
     }
 
+    // Apply software rotation via LVGL
+    if (swap_xy && !mirror_x && !mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_90);
+    } else if (swap_xy && mirror_x && !mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_180);
+    } else if (!swap_xy && mirror_x && mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_180);
+    } else if (swap_xy && !mirror_x && mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_270);
+    }
+
     if (offset_x != 0 || offset_y != 0) {
         lv_display_set_offset(display_, offset_x, offset_y);
     }
 }
+
 
 LcdDisplay::~LcdDisplay() {
     SetPreviewImage(nullptr);
@@ -1079,6 +1100,11 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     if (gif_controller_) {
         DisplayLockGuard lock(this);
         gif_controller_->Stop();
+        // Hide image before destroying GIF controller to prevent LVGL from
+        // accessing freed image data during rendering between lock scopes
+        if (emoji_image_) {
+            lv_obj_add_flag(emoji_image_, LV_OBJ_FLAG_HIDDEN);
+        }
         gif_controller_.reset();
     }
     
@@ -1090,8 +1116,7 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     }
 
     auto emoji_collection = static_cast<LvglTheme*>(current_theme_)->emoji_collection();
-    // Dùng GetRandomVariant để hỗ trợ random variant (happy_01, happy_02, ...)
-    auto image = emoji_collection != nullptr ? emoji_collection->GetRandomVariant(emotion) : nullptr;
+    auto image = emoji_collection != nullptr ? emoji_collection->GetEmojiImage(emotion) : nullptr;
     if (image == nullptr) {
         const char* utf8 = font_awesome_get_utf8(emotion);
         if (utf8 != nullptr && emoji_label_ != nullptr) {
@@ -1106,7 +1131,11 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     DisplayLockGuard lock(this);
     if (image->IsGif()) {
         // Create new GIF controller
-        gif_controller_ = std::make_unique<LvglGif>(image->image_dsc());
+        if (auto file_image = dynamic_cast<const LvglFileImage*>(image)) {
+            gif_controller_ = std::make_unique<LvglGif>(file_image->path().c_str());
+        } else {
+            gif_controller_ = std::make_unique<LvglGif>(image->image_dsc());
+        }
         
         if (gif_controller_->IsLoaded()) {
             // Set up frame update callback
