@@ -18,6 +18,9 @@
 #include <arpa/inet.h>
 #include <font_awesome.h>
 #include <unordered_map>
+#include <vector>
+#include <dirent.h>
+#include <esp_random.h>
 
 #define TAG "Application"
 
@@ -403,7 +406,29 @@ void Application::CheckAssetsVersion() {
     }
     
     display->SetChatMessage("system", "");
-    display->SetEmotion("default");  // Từ SD card
+    
+    DIR* dir = opendir("/sdcard/dodomio/emoji");
+    if (dir != nullptr) {
+        struct dirent* entry;
+        std::vector<std::string> emojis;
+        while ((entry = readdir(dir)) != nullptr) {
+            if (entry->d_name[0] == '.') continue;
+            const char* ext = strrchr(entry->d_name, '.');
+            if (ext != nullptr && strcasecmp(ext, ".gif") == 0) {
+                emojis.push_back(std::string(entry->d_name, ext - entry->d_name));
+            }
+        }
+        closedir(dir);
+        if (!emojis.empty()) {
+            int random_index = esp_random() % emojis.size();
+            display->SetEmotion(emojis[random_index].c_str());
+            ESP_LOGI(TAG, "Playing random emoji from SD card: %s", emojis[random_index].c_str());
+        } else {
+            display->SetEmotion("default");
+        }
+    } else {
+        display->SetEmotion("default");
+    }
 }
 
 void Application::CheckNewVersion() {

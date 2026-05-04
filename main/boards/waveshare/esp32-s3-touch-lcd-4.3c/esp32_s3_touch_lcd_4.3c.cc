@@ -21,6 +21,15 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
 
+#include <driver/spi_common.h>
+#include "esp_private/sdmmc_common.h"
+#include <esp_vfs_fat.h>
+#include <driver/sdspi_host.h>
+#include <dirent.h>
+#include <vector>
+#include <string>
+#include <esp_random.h>
+
 #define TAG "WaveshareEsp32s3TouchLCD43c"
 
 class CustomBacklight : public Backlight {
@@ -47,6 +56,7 @@ private:
     esp_io_expander_handle_t io_expander = NULL;
     PowerSaveTimer* power_save_timer_;
     CustomBacklight *backlight_;
+    bool is_sdcard_found_ = false;
 
     void InitializePowerSaveTimer() {
         power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
@@ -87,8 +97,9 @@ private:
 
     void InitializeCustomio(void) {
         custom_io_expander_new_i2c_ch32v003(i2c_bus_, BSP_IO_EXPANDER_I2C_ADDRESS, &io_expander);
-        esp_io_expander_set_dir(io_expander, BSP_POWER_AMP_IO | BSP_LCD_BACKLIGHT | BSP_LCD_TOUCH_RST , IO_EXPANDER_OUTPUT);
+        esp_io_expander_set_dir(io_expander, BSP_POWER_AMP_IO | BSP_LCD_BACKLIGHT | BSP_LCD_TOUCH_RST | SD_CS , IO_EXPANDER_OUTPUT);
         esp_io_expander_set_level(io_expander, BSP_POWER_AMP_IO | BSP_LCD_BACKLIGHT | BSP_LCD_TOUCH_RST , 1);
+        esp_io_expander_set_level(io_expander, SD_CS, 0); // Pull CS low for SD SPI
 
         esp_io_expander_set_level(io_expander, BSP_LCD_TOUCH_RST, 0);
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -96,6 +107,50 @@ private:
         vTaskDelay(pdMS_TO_TICKS(200));
         esp_io_expander_set_level(io_expander, BSP_LCD_TOUCH_RST, 1);
         vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
+    void InitializeSDcardSpi() {
+        spi_bus_config_t bus_cnf = {
+            .mosi_io_num = SD_CMD,
+            .miso_io_num = SD_DATA0,
+            .sclk_io_num = SD_CLK,
+            .quadwp_io_num = -1,
+            .quadhd_io_num = -1,
+            .max_transfer_sz = 400000,
+        };
+
+        esp_err_t err = spi_bus_initialize(SD_SPI_HOST, &bus_cnf, SPI_DMA_CH_AUTO);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize SPI bus for SD Card: %s", esp_err_to_name(err));
+            return;
+        }
+
+        sdspi_device_config_t slot_cnf = {
+            .host_id = SD_SPI_HOST,
+            .gpio_cs = GPIO_NUM_NC, // CS handled by IO expander
+            .gpio_cd = SDSPI_SLOT_NO_CD,
+            .gpio_wp = GPIO_NUM_NC,
+            .gpio_int = GPIO_NUM_NC,
+        };
+
+        esp_vfs_fat_sdmmc_mount_config_t mount_cnf = {
+            .format_if_mount_failed = false,
+            .max_files = 5,
+            .allocation_unit_size = 16 * 1024,
+        };
+
+        sdmmc_card_t* card = NULL;
+        sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+
+        err = esp_vfs_fat_sdspi_mount(SD_MOUNT_POINT, &host, &slot_cnf, &mount_cnf, &card);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "SD Card not found or mount failed: %s", esp_err_to_name(err));
+            is_sdcard_found_ = false;
+            return;
+        } else {
+            ESP_LOGI(TAG, "SD Card mounted successfully!");
+            is_sdcard_found_ = true;
+        }
     }
 
     void InitializeRGB() {
@@ -168,22 +223,8 @@ private:
             },
         };
         esp_lcd_panel_io_handle_t tp_io_handle = NULL;
-        // esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
-        // tp_io_config.scl_speed_hz = 400 * 1000;
-         esp_lcd_panel_io_i2c_config_t tp_io_config = {
-            .on_color_trans_done = NULL,
-            .user_ctx = NULL,
-            .control_phase_bytes = 1,
-            .dc_bit_offset = 0,
-            .lcd_cmd_bits = 16,
-            .lcd_param_bits = 16,
-            .flags = {
-                .dc_low_on_data = 0,
-                .disable_control_phase = 1,
-            }
-        };
-        tp_io_config.scl_speed_hz = 400000;
-        tp_io_config.dev_addr = 0x5D;
+        esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
+        tp_io_config.scl_speed_hz = 400 * 1000;
 
         esp_lcd_new_panel_io_i2c(i2c_bus_, &tp_io_config, &tp_io_handle);
 
@@ -218,6 +259,7 @@ public:
         InitializeRGB();
         InitializeTouch();
         InitializeTools();
+        InitializeSDcardSpi();
         GetBacklight()->SetBrightness(100);
     }
 
@@ -251,10 +293,6 @@ public:
             power_save_timer_->WakeUp();
         }
         WifiBoard::SetPowerSaveLevel(level);
-    }
-
-    virtual void* GetI2cBus() override {
-        return (void*)i2c_bus_;
     }
 };
 
