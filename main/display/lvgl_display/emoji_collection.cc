@@ -45,6 +45,9 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
     
     ESP_LOGI(TAG, "Loading emojis from SD: %s", base_path);
     
+    // Clear any existing emojis - use ONLY SD emojis
+    emoji_collection_.clear();
+    
     // Open directory
     DIR* dir = opendir(base_path);
     if (dir == nullptr) {
