@@ -1246,7 +1246,13 @@ void Application::HandlePlayScene(const cJSON* root) {
 
         // 2.3 Play audio from SD card (/dodomio/audio/<scene>.wav)
         if (!scene.empty()) {
-            std::string audio_path = "/sdcard/dodomio/audio/" + scene + ".wav";
+            // Normalize: uppercase→lowercase, ~→_
+            std::string scene_normalized = scene;
+            for (char& c : scene_normalized) {
+                if (c >= 'A' && c <= 'Z') c = c + 32;
+                if (c == '~') c = '_';
+            }
+            std::string audio_path = "/sdcard/dodomio/audio/" + scene_normalized + ".wav";
             
             // Set callback to reply when audio finishes
             if (need_reply && !reply_act.empty()) {
