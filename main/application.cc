@@ -568,7 +568,7 @@ void Application::InitializeProtocol() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }
-        } else if (strcmp(type->valuestring, "llm") == 0) {
+        } else if (strcmp(type->valuestring, "llm") == 0 || strcmp(type->valuestring, "tts") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
