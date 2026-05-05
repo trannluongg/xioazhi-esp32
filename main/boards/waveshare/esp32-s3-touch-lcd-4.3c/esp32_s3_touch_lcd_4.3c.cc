@@ -302,101 +302,6 @@ private:
         closedir(dir);
     }
 
-    void PlayRandomEmojiFromSdCard() {
-        if (!is_sdcard_found_) {
-            ESP_LOGW(TAG, "SD card not found, skipping emoji playback");
-            return;
-        }
-
-        const char* emoji_path = "/sdcard/dodomio/emoji";
-        struct stat st;
-        if (stat(emoji_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
-            ESP_LOGW(TAG, "Emoji directory not found: %s", emoji_path);
-            return;
-        }
-
-        // Collect all .gif files in the emoji directory
-        DIR* dir = opendir(emoji_path);
-        if (!dir) {
-            ESP_LOGE(TAG, "Failed to open emoji directory: %s", emoji_path);
-            return;
-        }
-
-        std::vector<std::string> gif_files;
-        struct dirent* entry;
-        while ((entry = readdir(dir)) != NULL) {
-            std::string name = entry->d_name;
-            // Check for .gif extension (case insensitive)
-            if (name.size() > 4) {
-                std::string ext = name.substr(name.size() - 4);
-                if (ext == ".gif" || ext == ".GIF") {
-                    gif_files.push_back(name);
-                }
-            }
-        }
-        closedir(dir);
-
-        if (gif_files.empty()) {
-            ESP_LOGW(TAG, "No .gif files found in %s", emoji_path);
-            return;
-        }
-
-        // Pick a random emoji
-        int index = esp_random() % gif_files.size();
-        std::string selected = gif_files[index];
-        ESP_LOGI(TAG, "Playing random emoji from SD: %s (picked %d of %d)",
-                 selected.c_str(), index + 1, (int)gif_files.size());
-
-        // Extract name without extension for SetEmotion
-        std::string emoji_name = selected.substr(0, selected.size() - 4);
-        
-        // Normalize: to lowercase and ~ to _
-        for (char& c : emoji_name) {
-            if (c >= 'A' && c <= 'Z') c = c + 32;
-            if (c == '~') c = '_';
-        }
-        
-        std::string full_path = std::string(emoji_path) + "/" + selected;
-        
-        // Read GIF file into memory
-        FILE* f = fopen(full_path.c_str(), "rb");
-        if (!f) {
-            ESP_LOGE(TAG, "Failed to open emoji file: %s", full_path.c_str());
-            return;
-        }
-        
-        fseek(f, 0, SEEK_END);
-        long file_size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        
-        void* data = malloc(file_size);
-        if (!data) {
-            ESP_LOGE(TAG, "Failed to allocate memory for emoji");
-            fclose(f);
-            return;
-        }
-        
-        size_t bytes_read = fread(data, 1, file_size, f);
-        fclose(f);
-        
-        if (bytes_read != (size_t)file_size) {
-            ESP_LOGE(TAG, "Failed to read emoji file");
-            free(data);
-            return;
-        }
-        
-        ESP_LOGI(TAG, "Loaded emoji from SD: %s (%d bytes)", emoji_name.c_str(), (int)file_size);
-        
-        auto display = GetDisplay();
-        if (display) {
-            auto theme = static_cast<LvglTheme*>(display->GetTheme());
-            if (theme && theme->emoji_collection()) {
-                theme->emoji_collection()->AddEmoji(emoji_name, new LvglRawImage(data, file_size));
-            }
-            display->SetEmotion(emoji_name.c_str());
-        }
-    }
-
 public:
     WaveshareEsp32s3TouchLCD43c() {
         InitializePowerSaveTimer();
@@ -408,17 +313,6 @@ public:
         InitializeTouch();
         InitializeTools();
         GetBacklight()->SetBrightness(100);
-
-        // Schedule random emoji playback after display is ready
-        if (is_sdcard_found_) {
-            xTaskCreate([](void* arg) {
-                auto* board = static_cast<WaveshareEsp32s3TouchLCD43c*>(arg);
-                // Wait for display to fully initialize
-                vTaskDelay(pdMS_TO_TICKS(3000));
-                board->PlayRandomEmojiFromSdCard();
-                vTaskDelete(NULL);
-            }, "sd_emoji_task", 4096, this, tskIDLE_PRIORITY + 1, NULL);
-        }
     }
 
     virtual AudioCodec* GetAudioCodec() override {
