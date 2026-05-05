@@ -231,12 +231,8 @@ bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
     }
     
     // Add to collection
-    std::string key(name);
-    // Normalize: uppercase→lowercase, ~→_
-    for (char& c : key) {
-        if (c >= 'A' && c <= 'Z') c = c + 32;
-        if (c == '~') c = '_';
-    }
+    // Use already normalized filename (without extension) for key
+    std::string key(filename.c_str(), filename.size() - 4);  // Remove .gif
     
     LvglRawImage* image = new LvglRawImage(data, st.st_size);
     emoji_collection_[key] = image;
