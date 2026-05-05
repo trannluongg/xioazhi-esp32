@@ -781,6 +781,7 @@ void AudioService::PlayFile(const char* file_path) {
     is_playing_from_sdcard_ = true;
     
     // Check if file exists
+    ESP_LOGI(TAG, "PlayFile: %s", file_path);
     struct stat st;
     if (stat(file_path, &st) != 0) {
         ESP_LOGW(TAG, "File not found: %s", file_path);

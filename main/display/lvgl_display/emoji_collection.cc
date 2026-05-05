@@ -29,7 +29,7 @@ const LvglImage* EmojiCollection::GetRandomVariant(const char* name) {
     
     // Try to load on-demand if not found
     if (emoji_collection_.find(name) == emoji_collection_.end()) {
-        LoadEmoji(name);
+        ủa(name);
     }
     
     auto image = GetEmojiImage(name);
@@ -189,8 +189,16 @@ bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
     std::string filename = name;
     filename += ".gif";
     
+    // Normalize filename: uppercase→lowercase, ~→_
+    for (char& c : filename) {
+        if (c >= 'A' && c <= 'Z') c = c + 32;
+        if (c == '~') c = '_';
+    }
+    
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/%s", base_path, filename.c_str());
+    
+    ESP_LOGI(TAG, "LoadEmoji: looking for %s", filepath);
     
     // Check file exists
     struct stat st;
@@ -223,12 +231,8 @@ bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
     }
     
     // Add to collection
-    std::string key(name);
-    // Normalize: uppercase→lowercase, ~→_
-    for (char& c : key) {
-        if (c >= 'A' && c <= 'Z') c = c + 32;
-        if (c == '~') c = '_';
-    }
+    // Use already normalized filename (without extension) for key
+    std::string key(filename.c_str(), filename.size() - 4);  // Remove .gif
     
     LvglRawImage* image = new LvglRawImage(data, st.st_size);
     emoji_collection_[key] = image;
