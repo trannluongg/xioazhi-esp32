@@ -29,7 +29,7 @@ const LvglImage* EmojiCollection::GetRandomVariant(const char* name) {
     
     // Try to load on-demand if not found
     if (emoji_collection_.find(name) == emoji_collection_.end()) {
-        LoadEmoji(name);
+        ủa(name);
     }
     
     auto image = GetEmojiImage(name);
@@ -191,6 +191,8 @@ bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
     
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/%s", base_path, filename.c_str());
+    
+    ESP_LOGI(TAG, "LoadEmoji: looking for %s", filepath);
     
     // Check file exists
     struct stat st;
