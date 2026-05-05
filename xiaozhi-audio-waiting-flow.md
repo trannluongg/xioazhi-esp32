@@ -1102,3 +1102,102 @@ if (req_id != nullptr) {
 | `main/application.h` | +1 param trong SendSceneDoneReply() |
 | `main/application.cc` | Thêm req_id extraction + truyền trong reply |
 | `xiaozhi-audio-waiting-flow.md` | Thêm implementation status |
+
+---
+
+## ✅ SD Card Emoji + Dark Theme Update
+
+**Ngày:** 2026-05-02
+
+### 📋 Tóm Tắt Thay Đổi
+
+| # | Chức năng | File | Status |
+|---|---------|------|-------|
+| 1 | SD Card Support (SDSPI 1-bit) | `config.h` + Board | ✅ |
+| 2 | Load ONLY from SD Card | `emoji_collection.cc` | ✅ |
+| 3 | Force Dark Theme | `lcd_display.cc` | ✅ |
+| 4 | Preserve SD emoji | `application.cc` + `lcd_display.cc` | ✅ |
+
+### 📋 Chi Tiết
+
+#### 1. SD Card Pins (Waveshare ESP32-S3-Touch-LCD-4.3c)
+
+| Pin | GPIO | Chức năng |
+|-----|------|----------|
+| CLK | 12 | BSP_SD_CLK |
+| CMD | 11 | BSP_SD_CMD |
+| D0 | 13 | BSP_SD_D0 |
+
+**Mode:** SDSPI 1-bit (tránh conflict với I2S)
+
+#### 2. Emoji Loading - SD Card Only
+
+**Nguyên tắc:**
+- `LoadFromSD()` xóa **tất cả** emoji có sẵn trước
+- Chỉ load từ SD card (`/sdcard/dodomio/emoji/`)
+- File: `default.gif` được ưu tiên load
+
+**Code:**
+```cpp
+// emoji_collection.cc - LoadFromSD()
+void EmojiCollection::LoadFromSD(const char* base_path) {
+    // Clear any existing emojis - use ONLY SD emojis
+    emoji_collection_.clear();
+    
+    // Load default.gif first, then others
+    // Only load 1 emoji to save memory (large GIF files)
+}
+```
+
+**Giới hạn bộ nhớ:**
+- ESP32-S3 RAM: ~512KB
+- MAX_EMOJIS = 1 (default only)
+- File GIF nên < 50KB
+
+#### 3. Dark Theme (Nền Đen)
+
+**Code:**
+```cpp
+// lcd_display.cc - Constructor
+// Force dark theme for this board
+theme_name = "dark";
+current_theme_ = LvglThemeManager::GetInstance().GetTheme(theme_name);
+```
+
+#### 4. Preserve SD Emoji (Không đổi Font Awesome)
+
+**Code:**
+```cpp
+// lcd_display.cc - SetEmotion()
+// If we have SD emoji, don't fall back to Font Awesome
+if (has_sd_emoji && image == nullptr) {
+    ESP_LOGW(TAG, "SetEmotion('%s') not found in SD, keeping current SD emoji", emotion);
+    return;
+}
+```
+
+### 📋 SD Card Structure
+
+```
+/sdcard/
+└── dodomio/
+    ├── emoji/
+    │   ├── default.gif      ← File cần thiết
+    │   ├── relaxed_01.gif
+    │   ├── cool_01.gif
+    │   └── ...
+    └── audio/
+        ├── ack_01.wav
+        ├── wait_01.wav
+        └── ...
+```
+
+### 📋 Files Changed
+
+| File | Thay đổi |
+|------|---------|
+| `config.h` | Thêm SD pins (#define) |
+| `esp32_s3_touch_lcd_4.3c.cc` | InitializeSdCard(), PlayRandomEmojiFromSdCard() |
+| `emoji_collection.cc` | LoadFromSD() - clear + load from SD only |
+| `lcd_display.cc` | Force dark theme + preserve SD emoji |
+| `application.cc` | Preserve SD emoji in DismissAlert/StateMachine |

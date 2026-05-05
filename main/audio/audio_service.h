@@ -129,6 +129,8 @@ public:
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
+    bool PushPacketToPlaybackQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
+    void PushTaskToPlaybackQueue(std::unique_ptr<AudioTask> task, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     void PlayFile(const char* file_path);  // Play WAV file from SD card

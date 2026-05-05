@@ -518,6 +518,19 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     audio_queue_cv_.notify_all();
 }
 
+void AudioService::PushTaskToPlaybackQueue(std::unique_ptr<AudioTask> task, bool wait) {
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    if (audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
+        if (wait) {
+            audio_queue_cv_.wait(lock, [this]() { return audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE; });
+        } else {
+            return;
+        }
+    }
+    audio_playback_queue_.push_back(std::move(task));
+    audio_queue_cv_.notify_all();
+}
+
 bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
     if (audio_decode_queue_.size() >= MAX_DECODE_PACKETS_IN_QUEUE) {
@@ -528,6 +541,20 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
         }
     }
     audio_decode_queue_.push_back(std::move(packet));
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
+bool AudioService::PushPacketToPlaybackQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    if (audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
+        if (wait) {
+            audio_queue_cv_.wait(lock, [this]() { return audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE; });
+        } else {
+            return false;
+        }
+    }
+    audio_playback_queue_.push_back(std::move(packet));
     audio_queue_cv_.notify_all();
     return true;
 }
@@ -816,15 +843,18 @@ void AudioService::PlayFile(const char* file_path) {
         size_t bytes_read = fread(buffer.data(), 1, buffer_size, f);
         if (bytes_read == 0) break;
         
-        // Create audio packet
-        auto packet = std::make_unique<AudioStreamPacket>();
-        packet->sample_rate = sample_rate;
-        packet->frame_duration = 60;
-        packet->payload.resize(bytes_read);
-        std::memcpy(packet->payload.data(), buffer.data(), bytes_read);
+        // Create audio task with PCM data (no encoding)
+        auto task = std::make_unique<AudioTask>();
+        task->type = kAudioTaskTypeDecodeToPlaybackQueue;
         
-        // Push to decode queue
-        PushPacketToDecodeQueue(std::move(packet), true);
+        // Convert raw bytes to int16_t PCM
+        int16_t* pcm_data = (int16_t*)buffer.data();
+        size_t num_samples = bytes_read / sizeof(int16_t);
+        task->pcm.resize(num_samples);
+        std::memcpy(task->pcm.data(), pcm_data, num_samples * sizeof(int16_t));
+        
+        // Push to playback queue DIRECTLY (not decode queue!)
+        PushTaskToPlaybackQueue(std::move(task), true);
     }
     
     fclose(f);
