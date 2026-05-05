@@ -26,6 +26,12 @@ const LvglImage* EmojiCollection::GetEmojiImage(const char* name) {
 const LvglImage* EmojiCollection::GetRandomVariant(const char* name) {
     // Server luôn gửi exact name (happy_01, happy_02, etc.)
     // Nên chỉ cần load exact name, không random
+    
+    // Try to load on-demand if not found
+    if (emoji_collection_.find(name) == emoji_collection_.end()) {
+        LoadEmoji(name);
+    }
+    
     auto image = GetEmojiImage(name);
     if (image == nullptr) {
         ESP_LOGW(TAG, "Emoji not found: %s", name);
@@ -170,6 +176,65 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
     }
     
     ESP_LOGI(TAG, "Loaded %d emojis from SD", loaded_count);
+}
+
+bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
+    // Check if already loaded
+    if (emoji_collection_.find(name) != emoji_collection_.end()) {
+        ESP_LOGI(TAG, "Emoji already loaded: %s", name);
+        return true;
+    }
+    
+    // Build filename: name + .gif
+    std::string filename = name;
+    filename += ".gif";
+    
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/%s", base_path, filename.c_str());
+    
+    // Check file exists
+    struct stat st;
+    if (stat(filepath, &st) != 0) {
+        ESP_LOGW(TAG, "Emoji file not found: %s", filepath);
+        return false;
+    }
+    
+    // Open and load file
+    FILE* f = fopen(filepath, "rb");
+    if (f == nullptr) {
+        ESP_LOGW(TAG, "Cannot open emoji file: %s", filepath);
+        return false;
+    }
+    
+    void* data = malloc(st.st_size);
+    if (data == nullptr) {
+        ESP_LOGW(TAG, "Cannot allocate memory for: %s", name);
+        fclose(f);
+        return false;
+    }
+    
+    size_t bytes_read = fread(data, 1, st.st_size, f);
+    fclose(f);
+    
+    if (bytes_read != (size_t)st.st_size) {
+        ESP_LOGW(TAG, "Incomplete read from: %s", filepath);
+        free(data);
+        return false;
+    }
+    
+    // Add to collection
+    std::string key(name);
+    // Normalize: uppercase→lowercase, ~→_
+    for (char& c : key) {
+        if (c >= 'A' && c <= 'Z') c = c + 32;
+        if (c == '~') c = '_';
+    }
+    
+    LvglRawImage* image = new LvglRawImage(data, st.st_size);
+    emoji_collection_[key] = image;
+    
+    ESP_LOGI(TAG, "Loaded emoji on-demand: %s (%d bytes)", key.c_str(), (int)st.st_size);
+    return true;
 }
 
 // These are declared in xiaozhi-fonts/src/font_emoji_32.c
