@@ -189,12 +189,6 @@ bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
     std::string filename = name;
     filename += ".gif";
     
-    // Normalize filename: uppercase→lowercase, ~→_
-    for (char& c : filename) {
-        if (c >= 'A' && c <= 'Z') c = c + 32;
-        if (c == '~') c = '_';
-    }
-    
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/%s", base_path, filename.c_str());
     
