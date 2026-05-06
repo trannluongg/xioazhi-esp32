@@ -114,13 +114,7 @@ void EmojiCollection::LoadFromSD(const char* base_path) {
         // Extract name without extension: happy_01.gif → "happy_01"
         std::string name(entry->d_name, ext - entry->d_name);
         
-        // Convert to lowercase for consistency: "RELAXE~1" → "relaxed_01"
-        for (char& c : name) {
-            if (c >= 'A' && c <= 'Z') c = c + 32;
-            if (c == '~') c = '_';  // Fix ~ to _
-        }
-        
-        // Create image and add to collection with exact name
+        // Create image and add to collection (keep original name as-is)
         LvglRawImage* image = new LvglRawImage(data, st.st_size);
         AddEmoji(name, image);
         
@@ -189,12 +183,6 @@ bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
     std::string filename = name;
     filename += ".gif";
     
-    // Normalize filename: uppercase→lowercase, ~→_
-    for (char& c : filename) {
-        if (c >= 'A' && c <= 'Z') c = c + 32;
-        if (c == '~') c = '_';
-    }
-    
     char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/%s", base_path, filename.c_str());
     
@@ -231,7 +219,7 @@ bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
     }
     
     // Add to collection
-    // Use already normalized filename (without extension) for key
+    // Use filename (without extension) for key (same as server sends)
     std::string key(filename.c_str(), filename.size() - 4);  // Remove .gif
     
     LvglRawImage* image = new LvglRawImage(data, st.st_size);
