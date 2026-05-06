@@ -1,6 +1,7 @@
 #include "afe_wake_word.h"
 #include "audio_service.h"
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
 #include <sstream>
 
 #define DETECTION_RUNNING_EVENT 1
@@ -122,6 +123,8 @@ void AfeWakeWord::Feed(const std::vector<int16_t>& data) {
     while (input_buffer_.size() >= chunk_size) {
         afe_iface_->feed(afe_data_, input_buffer_.data());
         input_buffer_.erase(input_buffer_.begin(), input_buffer_.begin() + chunk_size);
+        // Yield to prevent watchdog timeout after each feed
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
