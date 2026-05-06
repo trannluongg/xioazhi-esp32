@@ -399,7 +399,7 @@ void Application::CheckAssetsVersion() {
     // Sau khi assets.Apply() đã tạo emoji_collection
     auto theme = display->GetTheme();
     if (theme && theme->emoji_collection()) {
-        theme->emoji_collection()->LoadFromSD("/sdcard/dodomio/emoji");
+        theme->emoji_collection()->LoadDefaultEmoji("/sdcard/dodomio/emoji");
     } else {
         ESP_LOGE(TAG, "emoji_collection is NULL!");
     }

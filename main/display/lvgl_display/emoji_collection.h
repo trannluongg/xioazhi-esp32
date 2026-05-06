@@ -20,7 +20,7 @@ public:
 
     // Load all emojis from SD card folder
     // Scans /sdcard/dodomio/emoji/ and loads all .gif files
-    void LoadFromSD(const char* base_path = "/sdcard/dodomio/emoji");
+    void LoadDefaultEmoji(const char* base_path = "/sdcard/dodomio/emoji");
     
     // Load single emoji on-demand when server requests it
     // Returns true if loaded successfully

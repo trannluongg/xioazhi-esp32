@@ -46,7 +46,7 @@ EmojiCollection::~EmojiCollection() {
     emoji_collection_.clear();
 }
 
-void EmojiCollection::LoadFromSD(const char* base_path) {
+void EmojiCollection::LoadDefaultEmoji(const char* base_path) {
     static const char* TAG = "LoadEmojiSD";
     
     ESP_LOGI(TAG, "Loading default emoji from SD: %s", base_path);
