@@ -29,7 +29,7 @@ const LvglImage* EmojiCollection::GetRandomVariant(const char* name) {
     
     // Try to load on-demand if not found
     if (emoji_collection_.find(name) == emoji_collection_.end()) {
-        ủa(name);
+        LoadEmoji(name);
     }
     
     auto image = GetEmojiImage(name);
