@@ -559,6 +559,13 @@ void Application::InitializeProtocol() {
                         display->SetChatMessage("assistant", message.c_str());
                     });
                 }
+                // Also handle emotion in tts message
+                auto emotion = cJSON_GetObjectItem(root, "emotion");
+                if (cJSON_IsString(emotion)) {
+                    Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
+                        display->SetEmotion(emotion_str.c_str());
+                    });
+                }
             }
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
