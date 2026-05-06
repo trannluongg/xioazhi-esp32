@@ -29,7 +29,7 @@ const LvglImage* EmojiCollection::GetRandomVariant(const char* name) {
     
     // Try to load on-demand if not found
     if (emoji_collection_.find(name) == emoji_collection_.end()) {
-        LoadEmoji(name);
+        LoadEmojiOnDemand(name);
     }
     
     auto image = GetEmojiImage(name);
@@ -96,7 +96,7 @@ void EmojiCollection::LoadDefaultEmoji(const char* base_path) {
     ESP_LOGI(TAG, "Loaded default emoji: default (%d bytes)", (int)st.st_size);
 }
 
-bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
+bool EmojiCollection::LoadEmojiOnDemand(const char* name, const char* base_path) {
     // Check if already loaded
     if (emoji_collection_.find(name) != emoji_collection_.end()) {
         ESP_LOGI(TAG, "Emoji already loaded: %s", name);

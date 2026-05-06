@@ -24,7 +24,7 @@ public:
     
     // Load single emoji on-demand when server requests it
     // Returns true if loaded successfully
-    bool LoadEmoji(const char* name, const char* base_path = "/sdcard/dodomio/emoji");
+    bool LoadEmojiOnDemand(const char* name, const char* base_path = "/sdcard/dodomio/emoji");
 
 private:
     std::map<std::string, LvglImage*> emoji_collection_;
