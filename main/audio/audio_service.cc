@@ -280,6 +280,8 @@ void AudioService::AudioInputTask() {
                 if (bits & AS_EVENT_AUDIO_PROCESSOR_RUNNING) {
                     audio_processor_->Feed(std::move(data));
                 }
+                // Yield to prevent watchdog timeout
+                vTaskDelay(pdMS_TO_TICKS(1));
                 continue;
             }
         }
