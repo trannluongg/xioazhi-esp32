@@ -49,127 +49,51 @@ EmojiCollection::~EmojiCollection() {
 void EmojiCollection::LoadFromSD(const char* base_path) {
     static const char* TAG = "LoadEmojiSD";
     
-    ESP_LOGI(TAG, "Loading emojis from SD: %s", base_path);
+    ESP_LOGI(TAG, "Loading default emoji from SD: %s", base_path);
     
     // Clear any existing emojis - use ONLY SD emojis
     emoji_collection_.clear();
     
-    // Open directory
-    DIR* dir = opendir(base_path);
-    if (dir == nullptr) {
-        ESP_LOGW(TAG, "Cannot open emoji directory: %s", base_path);
+    // Build path for default.gif
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/default.gif", base_path);
+    
+    // Get file size
+    struct stat st;
+    if (stat(filepath, &st) != 0) {
+        ESP_LOGW(TAG, "Cannot stat file: %s", filepath);
         return;
     }
     
-    struct dirent* entry;
-    int loaded_count = 0;
-    const int MAX_EMOJIS = 1;  // Only load default at startup, others on-demand
+    // Open file
+    FILE* f = fopen(filepath, "rb");
+    if (f == nullptr) {
+        ESP_LOGW(TAG, "Cannot open file: %s", filepath);
+        return;
+    }
     
-    // Scan all files in directory
-    while ((entry = readdir(dir)) != nullptr) {
-        // Skip . and ..
-        if (entry->d_name[0] == '.') continue;
-        
-        // Check for .gif extension
-        const char* ext = strrchr(entry->d_name, '.');
-        if (ext == nullptr || strcasecmp(ext, ".gif") != 0) {
-            continue;
-        }
-        
-        // Build full path
-        char filepath[512];
-        snprintf(filepath, sizeof(filepath), "%s/%s", base_path, entry->d_name);
-        
-        // Get file size
-        struct stat st;
-        if (stat(filepath, &st) != 0) {
-            ESP_LOGW(TAG, "Cannot stat file: %s", filepath);
-            continue;
-        }
-        
-        // Open file
-        FILE* f = fopen(filepath, "rb");
-        if (f == nullptr) {
-            ESP_LOGW(TAG, "Cannot open file: %s", filepath);
-            continue;
-        }
-        
-        // Allocate buffer and read file
-        void* data = malloc(st.st_size);
-        if (data == nullptr) {
-            ESP_LOGW(TAG, "Cannot allocate memory for: %s", entry->d_name);
-            fclose(f);
-            continue;
-        }
-        
-        size_t bytes_read = fread(data, 1, st.st_size, f);
+    // Allocate buffer and read file
+    void* data = malloc(st.st_size);
+    if (data == nullptr) {
+        ESP_LOGW(TAG, "Cannot allocate memory for: %s", filepath);
         fclose(f);
-        
-        if (bytes_read != (size_t)st.st_size) {
-            ESP_LOGW(TAG, "Incomplete read from: %s", filepath);
-            free(data);
-            continue;
-        }
-        
-        // Extract name without extension: happy_01.gif → "happy_01"
-        std::string name(entry->d_name, ext - entry->d_name);
-        
-        // Create image and add to collection (keep original name as-is)
-        LvglRawImage* image = new LvglRawImage(data, st.st_size);
-        AddEmoji(name, image);
-        
-        loaded_count++;
-        if (loaded_count >= MAX_EMOJIS) {
-            ESP_LOGW(TAG, "Reached max emojis limit (%d), stopping load", MAX_EMOJIS);
-            // Drain remaining directory entries before closing
-            while (readdir(dir) != nullptr) { }
-            break;
-        }
-        ESP_LOGI(TAG, "Loaded emoji: %s (%d bytes)", name.c_str(), (int)st.st_size);
+        return;
     }
     
-    // If default.gif exists in directory but wasn't loaded, load it
-    if (loaded_count > 0 && loaded_count < MAX_EMOJIS) {
-        char default_path[512];
-        snprintf(default_path, sizeof(default_path), "%s/default.gif", base_path);
-        struct stat st_default;
-        if (stat(default_path, &st_default) == 0) {
-            // Load default.gif
-            FILE* f = fopen(default_path, "rb");
-            if (f) {
-                void* data = malloc(st_default.st_size);
-                if (data) {
-                    size_t bytes_read = fread(data, 1, st_default.st_size, f);
-                    fclose(f);
-                    if (bytes_read == (size_t)st_default.st_size) {
-                        emoji_collection_["default"] = new LvglRawImage(data, st_default.st_size);
-                        ESP_LOGI(TAG, "Added 'default' alias from file");
-                        loaded_count++;
-                    } else {
-                        free(data);
-                    }
-                } else {
-                    fclose(f);
-                }
-            }
-        }
+    size_t bytes_read = fread(data, 1, st.st_size, f);
+    fclose(f);
+    
+    if (bytes_read != (size_t)st.st_size) {
+        ESP_LOGW(TAG, "Incomplete read from: %s", filepath);
+        free(data);
+        return;
     }
     
-    closedir(dir);
+    // Add default emoji to collection
+    LvglRawImage* image = new LvglRawImage(data, st.st_size);
+    AddEmoji("default", image);
     
-    // Also add alias if not already added
-    if (loaded_count > 0) {
-        // Find first loaded emoji and add alias
-        for (auto& pair : emoji_collection_) {
-            if (pair.first != "default") {
-                emoji_collection_["default"] = pair.second;
-                ESP_LOGI(TAG, "Added 'default' alias to: %s", pair.first.c_str());
-            }
-            break;
-        }
-    }
-    
-    ESP_LOGI(TAG, "Loaded %d emojis from SD", loaded_count);
+    ESP_LOGI(TAG, "Loaded default emoji: default (%d bytes)", (int)st.st_size);
 }
 
 bool EmojiCollection::LoadEmoji(const char* name, const char* base_path) {
