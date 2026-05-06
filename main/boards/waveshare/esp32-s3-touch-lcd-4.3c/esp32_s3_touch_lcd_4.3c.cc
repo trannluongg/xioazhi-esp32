@@ -261,45 +261,14 @@ private:
             is_sdcard_found_ = true;
             ESP_LOGI(TAG, "[SD] PLUGGED - SD card mounted successfully at %s", SD_MOUNT_POINT);
             sdmmc_card_print_info(stdout, card);
-
-            // Check /sdcard/dodomio/emoji directory
             struct stat st;
             if (stat("/sdcard/dodomio/emoji", &st) == 0 && S_ISDIR(st.st_mode)) {
                 ESP_LOGI(TAG, "[SD] Found /sdcard/dodomio/emoji directory");
-                ListSdDirectory("/sdcard/dodomio/emoji");
             } else {
                 ESP_LOGW(TAG, "[SD] /sdcard/dodomio/emoji directory NOT found");
-                // List root to help user debug
-                ListSdDirectory("/sdcard");
             }
         }
         ESP_LOGI(TAG, "========================================");
-    }
-
-    void ListSdDirectory(const char* path, int level = 0) {
-        DIR* dir = opendir(path);
-        if (!dir) {
-            ESP_LOGE(TAG, "Failed to open directory: %s", path);
-            return;
-        }
-        struct dirent* entry;
-        while ((entry = readdir(dir)) != NULL) {
-            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-                continue;
-            }
-            // Print indentation
-            char indent[64] = {0};
-            for (int i = 0; i < level * 2 && i < 62; i++) indent[i] = ' ';
-            
-            if (entry->d_type == DT_DIR) {
-                ESP_LOGI(TAG, "%s[DIR] %s", indent, entry->d_name);
-                std::string next = std::string(path) + "/" + entry->d_name;
-                ListSdDirectory(next.c_str(), level + 1);
-            } else {
-                ESP_LOGI(TAG, "%s%s", indent, entry->d_name);
-            }
-        }
-        closedir(dir);
     }
 
 public:
