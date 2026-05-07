@@ -83,6 +83,8 @@ public:
     virtual std::string GetBoardJson() = 0;
     virtual std::string GetDeviceStatusJson() = 0;
     virtual void* GetI2cBus() { return nullptr; }  // Returns i2c_master_bus_handle_t
+    virtual void I2cScan() {}
+    virtual bool I2cWrite(uint8_t addr, uint8_t reg, uint8_t value) { return false; }
 };
 
 #define DECLARE_BOARD(BOARD_CLASS_NAME) \

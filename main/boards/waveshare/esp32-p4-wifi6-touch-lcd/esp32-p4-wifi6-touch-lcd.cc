@@ -669,6 +669,10 @@ public:
         i2c_master_bus_rm_device(dev_handle);
         return err == ESP_OK;
     }
+
+    virtual void* GetI2cBus() override {
+        return (void*)i2c_bus_;
+    }
 };
 
 DECLARE_BOARD(WaveshareEsp32p4);
