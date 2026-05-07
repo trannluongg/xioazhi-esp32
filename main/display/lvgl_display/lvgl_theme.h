@@ -28,7 +28,7 @@ public:
     inline lv_color_t border_color() const { return border_color_; }
     inline lv_color_t low_battery_color() const { return low_battery_color_; }
     inline std::shared_ptr<LvglImage> background_image() const { return background_image_; }
-    inline std::shared_ptr<EmojiCollection> emoji_collection() const { return emoji_collection_; }
+    inline std::shared_ptr<EmojiCollection> emoji_collection() const override { return emoji_collection_; }
     inline std::shared_ptr<LvglFont> text_font() const { return text_font_; }
     inline std::shared_ptr<LvglFont> icon_font() const { return icon_font_; }
     inline std::shared_ptr<LvglFont> large_icon_font() const { return large_icon_font_; }

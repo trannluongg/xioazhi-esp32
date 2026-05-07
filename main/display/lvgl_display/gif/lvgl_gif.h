@@ -10,13 +10,14 @@
  * C++ implementation of LVGL GIF widget
  * Provides GIF animation functionality using gifdec library
  */
-class LvglGif {
+class LvglGif : public LvglImage {
 public:
-    explicit LvglGif(const lv_img_dsc_t* img_dsc);
+    explicit LvglGif(const lv_image_dsc_t* img_dsc);
+    explicit LvglGif(const char* path);
     virtual ~LvglGif();
 
     // LvglImage interface implementation
-    virtual const lv_img_dsc_t* image_dsc() const;
+    virtual const lv_image_dsc_t* image_dsc() const override;
 
     /**
      * Start/restart GIF animation
@@ -85,7 +86,7 @@ private:
     gd_GIF* gif_;
     
     // LVGL image descriptor
-    lv_img_dsc_t img_dsc_;
+    lv_image_dsc_t img_dsc_;
     
     // Animation timer
     lv_timer_t* timer_;
@@ -104,6 +105,10 @@ private:
     
     // Frame update callback
     std::function<void()> frame_callback_;
+
+    // PSRAM cache for file-based GIFs
+    uint8_t* psram_data_ = nullptr;
+    size_t psram_data_size_ = 0;
     
     /**
      * Update to next frame
