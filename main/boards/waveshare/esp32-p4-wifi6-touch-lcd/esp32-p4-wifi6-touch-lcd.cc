@@ -6,7 +6,6 @@
 #include "display/display.h"
 #include "display/lcd_display.h"
 
-
 #include <dirent.h>
 #include <sys/stat.h>
 #include <string>
@@ -17,12 +16,11 @@
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_ldo_regulator.h"
+#include "esp_random.h"
 #include "esp_vfs_fat.h"
 #include "esp_video.h"
 #include "esp_video_init.h"
 #include "sdmmc_cmd.h"
-#include "esp_random.h"
-
 
 #if CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4B
 #include "esp_lcd_st7703.h"
@@ -56,8 +54,8 @@ private:
     Button boot_button_;
     Button touch_sensor_;
     Button touch_sensor_21_;
-    Button touch_sensor_37_;
-    Button touch_sensor_38_;
+    Button touch_sensor_25_;
+    Button touch_sensor_24_;
     Button volume_up_button_;
     Button volume_down_button_;
     Button speak_button_;
@@ -65,7 +63,7 @@ private:
     EspVideo* camera_ = nullptr;
     esp_timer_handle_t touch_timer_ = nullptr;
 
-    esp_err_t i2c_device_probe(uint8_t addr) { return i2c_master_probe(i2c_bus_, addr, 100); }
+    esp_err_t i2c_device_probe(uint8_t addr) { return i2c_master_probe(i2c_bus_, addr, 10); }
 
     void InitializeCodecI2c() {
         // Initialize I2C peripheral
@@ -83,6 +81,10 @@ private:
                 },
         };
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
+
+        // NOTE: I2C scan removed from boot sequence.
+        // Use I2cScan() MCP tool for on-demand scanning if needed.
+        // Scanning during boot causes I2C bus lockup when STM32 slave is connected.
     }
 
     static esp_err_t bsp_enable_dsi_phy_power(void) {
@@ -448,6 +450,31 @@ private:
 
         camera_ = new EspVideo(cam_config);
     }
+    void ListDirectory(const char* path, int level = 0) {
+        DIR* dir = opendir(path);
+        if (!dir) {
+            ESP_LOGE(TAG, "Failed to open directory %s", path);
+            return;
+        }
+
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != NULL) {
+            char indent[32] = {0};
+            for (int i = 0; i < level && i < 30; i++)
+                indent[i] = ' ';
+
+            if (entry->d_type == DT_DIR) {
+                if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                    continue;
+                ESP_LOGI(TAG, "%s[%s]", indent, entry->d_name);
+                std::string next_path = std::string(path) + "/" + entry->d_name;
+                ListDirectory(next_path.c_str(), level + 2);
+            } else {
+                ESP_LOGI(TAG, "%s%s", indent, entry->d_name);
+            }
+        }
+        closedir(dir);
+    }
 
     void InitializeSdCard() {
         ESP_LOGI(TAG, "Initializing SD card power (GPIO45)...");
@@ -477,7 +504,7 @@ private:
             .format_if_mount_failed = false, .max_files = 5, .allocation_unit_size = 16 * 1024};
         sdmmc_host_t host = SDMMC_HOST_DEFAULT();
         host.slot = SDMMC_HOST_SLOT_0;
-        host.max_freq_khz = 40000; // Increased to 40MHz for better performance
+        host.max_freq_khz = 40000;  // Increased to 40MHz for better performance
 
         sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
         slot_config.width = 4;
@@ -510,12 +537,14 @@ private:
         ESP_LOGI(TAG, "Filesystem mounted at /sdcard");
         sdmmc_card_print_info(stdout, card);
 
-        // Check if /sdcard/dodomio/emoji exists
+        // Check if /sdcard/emoji exists
         struct stat st;
-        if (stat("/sdcard/dodomio/emoji", &st) == 0 && S_ISDIR(st.st_mode)) {
-            ESP_LOGI(TAG, "Found /sdcard/dodomio/emoji directory. Listing files:");
+        if (stat("/sdcard/emoji", &st) == 0 && S_ISDIR(st.st_mode)) {
+            ESP_LOGI(TAG, "Found /sdcard/emoji directory. Listing files:");
+            ListDirectory("/sdcard/emoji");
         } else {
-            ESP_LOGW(TAG, "/sdcard/dodomio/emoji directory NOT found! Listing root directory instead:");
+            ESP_LOGW(TAG, "/sdcard/emoji directory NOT found! Listing root directory instead:");
+            ListDirectory("/sdcard");
         }
     }
     void InitializeTouchSensor() {
@@ -543,8 +572,8 @@ private:
         };
 
         touch_sensor_21_.OnPressDown(random_emoji_callback);
-        touch_sensor_37_.OnPressDown(random_emoji_callback);
-        touch_sensor_38_.OnPressDown(random_emoji_callback);
+        touch_sensor_25_.OnPressDown(random_emoji_callback);
+        touch_sensor_24_.OnPressDown(random_emoji_callback);
     }
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
@@ -592,7 +621,8 @@ private:
 
         speak_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting) return;
+            if (app.GetDeviceState() == kDeviceStateStarting)
+                return;
             // Dùng ToggleChatState để bắt đầu nghe với chế độ tự động ngắt (AutoStop)
             // Đây là chế độ tương tự như khi gọi wake word, nhận diện giọng nói ổn định hơn.
             app.ToggleChatState();
@@ -600,15 +630,15 @@ private:
     }
 
 public:
-    WaveshareEsp32p4() : 
-        boot_button_(BOOT_BUTTON_GPIO), 
-        touch_sensor_(TOUCH_SENSOR_GPIO, true), 
-        touch_sensor_21_(GPIO_NUM_21, true), 
-        touch_sensor_37_(GPIO_NUM_37, true), 
-        touch_sensor_38_(GPIO_NUM_38, true),
-        volume_up_button_(GPIO_NUM_31),
-        volume_down_button_(GPIO_NUM_29),
-        speak_button_(GPIO_NUM_30) {
+    WaveshareEsp32p4()
+        : boot_button_(BOOT_BUTTON_GPIO),
+          touch_sensor_(TOUCH_SENSOR_GPIO, true),
+          touch_sensor_21_(GPIO_NUM_21, false),
+          touch_sensor_25_(GPIO_NUM_25, false),
+          touch_sensor_24_(GPIO_NUM_24, false),
+          volume_up_button_(GPIO_NUM_31),
+          volume_down_button_(GPIO_NUM_29),
+          speak_button_(GPIO_NUM_30) {
         InitializeCodecI2c();
         InitializeLCD();
         InitializeTouch();
@@ -617,7 +647,8 @@ public:
         InitializeTouchSensor();
         InitializeSdCard();
         GetBacklight()->RestoreBrightness();
-        I2cScan();
+        // NOTE: I2cScan() removed from boot — causes WDT crash when STM32 slave is connected.
+        // Use MCP tool self.stm32.send_command for on-demand I2C scanning.
     }
 
     virtual AudioCodec* GetAudioCodec() override {
@@ -641,11 +672,12 @@ public:
     virtual void I2cScan() override {
         printf("Scanning I2C bus...\n");
         uint8_t count = 0;
-        for (uint8_t addr = 1; addr < 128; addr++) {
+        for (uint8_t addr = 8; addr < 120; addr++) {  // skip reserved addresses
             if (i2c_device_probe(addr) == ESP_OK) {
                 printf(" - Found I2C device at address 0x%02X\n", addr);
                 count++;
             }
+            vTaskDelay(1);  // feed watchdog between probes
         }
         if (count == 0) {
             printf(" - No I2C devices found\n");
@@ -668,10 +700,6 @@ public:
         esp_err_t err = i2c_master_transmit(dev_handle, data, sizeof(data), -1);
         i2c_master_bus_rm_device(dev_handle);
         return err == ESP_OK;
-    }
-
-    virtual void* GetI2cBus() override {
-        return (void*)i2c_bus_;
     }
 };
 
