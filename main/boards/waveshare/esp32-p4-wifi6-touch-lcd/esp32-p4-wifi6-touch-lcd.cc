@@ -107,6 +107,16 @@ private:
 
     void InitializeLCD() {
         bsp_enable_dsi_phy_power();
+        vTaskDelay(pdMS_TO_TICKS(200)); // Wait for power to stabilize
+        
+        // Force backlight on
+        gpio_config_t bk_cfg = {
+            .pin_bit_mask = 1ULL << DISPLAY_BACKLIGHT_PIN,
+            .mode = GPIO_MODE_OUTPUT,
+        };
+        gpio_config(&bk_cfg);
+        gpio_set_level(DISPLAY_BACKLIGHT_PIN, DISPLAY_BACKLIGHT_OUTPUT_INVERT ? 0 : 1);
+
         esp_lcd_panel_io_handle_t io = NULL;
         esp_lcd_panel_handle_t disp_panel = NULL;
 
@@ -376,11 +386,19 @@ private:
         esp_lcd_new_panel_ili9881c(io, &lcd_dev_config, &disp_panel);
 #endif
         ESP_LOGI(TAG, "Reset LCD panel");
-        ESP_ERROR_CHECK(esp_lcd_panel_reset(disp_panel));
+        gpio_config_t rst_cfg = {
+            .pin_bit_mask = 1ULL << PIN_NUM_LCD_RST,
+            .mode = GPIO_MODE_OUTPUT,
+        };
+        gpio_config(&rst_cfg);
+        gpio_set_level(PIN_NUM_LCD_RST, 0);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        gpio_set_level(PIN_NUM_LCD_RST, 1);
+        vTaskDelay(pdMS_TO_TICKS(120));
+
         ESP_LOGI(TAG, "Init LCD panel");
         ESP_ERROR_CHECK(esp_lcd_panel_init(disp_panel));
-        ESP_LOGI(TAG, "LCD panel initialized");
-
+        ESP_LOGI(TAG, "LCD panel initialized. Creating MipiLcdDisplay with %dx%d", DISPLAY_WIDTH, DISPLAY_HEIGHT);
         display_ = new MipiLcdDisplay(io, disp_panel, DISPLAY_WIDTH, DISPLAY_HEIGHT,
                                       DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X,
                                       DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
