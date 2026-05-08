@@ -115,8 +115,27 @@ bool EmojiCollection::LoadEmojiOnDemand(const char* name, const char* base_path)
     // Check file exists
     struct stat st;
     if (stat(filepath, &st) != 0) {
-        ESP_LOGW(TAG, "Emoji file not found: %s", filepath);
-        return false;
+        ESP_LOGW(TAG, "Emoji file not found: %s. Scanning directory for case-insensitive match...", filepath);
+        
+        // Try case-insensitive search
+        DIR* dir = opendir(base_path);
+        if (dir) {
+            struct dirent* entry;
+            bool found = false;
+            while ((entry = readdir(dir)) != NULL) {
+                if (strcasecmp(entry->d_name, filename.c_str()) == 0) {
+                    snprintf(filepath, sizeof(filepath), "%s/%s", base_path, entry->d_name);
+                    stat(filepath, &st);
+                    found = true;
+                    ESP_LOGI(TAG, "Found case-insensitive match: %s", entry->d_name);
+                    break;
+                }
+            }
+            closedir(dir);
+            if (!found) return false;
+        } else {
+            return false;
+        }
     }
     
     // Open and load file

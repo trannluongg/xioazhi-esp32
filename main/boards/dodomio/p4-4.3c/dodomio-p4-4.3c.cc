@@ -49,7 +49,7 @@
 #include <esp_lvgl_port.h>
 #include "esp_lcd_touch_gt911.h"
 
-#define TAG "DodoMio_P4_4.3C"
+#define TAG "DodoMio"
 
 class DodomioP4_4_3C : public WifiBoard {
 private:
@@ -560,13 +560,13 @@ private:
         ESP_LOGI(TAG, "Filesystem mounted at /sdcard");
         sdmmc_card_print_info(stdout, card);
 
-        // Check if /sdcard/emoji exists
+        // Check if /sdcard/dodomio/emoji exists
         struct stat st;
-        if (stat("/sdcard/emoji", &st) == 0 && S_ISDIR(st.st_mode)) {
-            ESP_LOGI(TAG, "Found /sdcard/emoji directory. Listing files:");
-            ListDirectory("/sdcard/emoji");
+        if (stat("/sdcard/dodomio/emoji", &st) == 0 && S_ISDIR(st.st_mode)) {
+            ESP_LOGI(TAG, "Found /sdcard/dodomio/emoji directory. Listing files:");
+            ListDirectory("/sdcard/dodomio/emoji");
         } else {
-            ESP_LOGW(TAG, "/sdcard/emoji directory NOT found! Listing root directory instead:");
+            ESP_LOGW(TAG, "/sdcard/dodomio/emoji directory NOT found! Listing root directory instead:");
             ListDirectory("/sdcard");
         }
     }
