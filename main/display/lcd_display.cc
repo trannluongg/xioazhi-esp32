@@ -3,6 +3,7 @@
 #include "settings.h"
 #include "lvgl_theme.h"
 #include "assets/lang_config.h"
+#include "lvgl_display/lvgl_fs.h"
 
 #include <vector>
 #include <algorithm>
@@ -237,10 +238,9 @@ RgbLcdDisplay::RgbLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
 }
 
 MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
-                            int width, int height,  int offset_x, int offset_y,
-                            bool mirror_x, bool mirror_y, bool swap_xy)
+                               int width, int height, int offset_x, int offset_y, bool mirror_x,
+                               bool mirror_y, bool swap_xy)
     : LcdDisplay(panel_io, panel, width, height) {
-
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
 
@@ -248,44 +248,65 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     lvgl_port_init(&port_cfg);
 
-    ESP_LOGI(TAG, "Adding LCD display");
+    lvgl_fs_register();
+
+    // When sw_rotate is used, hres/vres must be physical panel dimensions.
+    // width_/height_ represent the logical (post-rotation) dimensions.
+    // If swap_xy is true, the physical panel is portrait (height_ wide, width_ tall).
+    int phy_w = swap_xy ? height : width;
+    int phy_h = swap_xy ? width : height;
+
+    ESP_LOGI(TAG, "Adding LCD display (physical %dx%d, logical %dx%d, swap_xy=%d)", phy_w, phy_h,
+             width, height, swap_xy);
     const lvgl_port_display_cfg_t disp_cfg = {
         .io_handle = panel_io,
         .panel_handle = panel,
         .control_handle = nullptr,
-        .buffer_size = static_cast<uint32_t>(width_ * 50),
+        .buffer_size = static_cast<uint32_t>(phy_w * 50),
         .double_buffer = false,
-        .hres = static_cast<uint32_t>(width_),
-        .vres = static_cast<uint32_t>(height_),
+        .hres = static_cast<uint32_t>(phy_w),
+        .vres = static_cast<uint32_t>(phy_h),
         .monochrome = false,
         /* Rotation values must be same as used in esp_lcd for initial settings of the screen */
-        .rotation = {
-            .swap_xy = swap_xy,
-            .mirror_x = mirror_x,
-            .mirror_y = mirror_y,
-        },
-        .flags = {
-            .buff_dma = true,
-            .buff_spiram =false,
-            .sw_rotate = true,
-        },
+        .rotation =
+            {
+                .swap_xy = false,
+                .mirror_x = false,
+                .mirror_y = false,
+            },
+        .flags =
+            {
+                .buff_dma = true,
+                .buff_spiram = false,
+                .sw_rotate = true,
+            },
     };
 
-    const lvgl_port_display_dsi_cfg_t dpi_cfg = {
-        .flags = {
-            .avoid_tearing = false,
-        }
-    };
+    const lvgl_port_display_dsi_cfg_t dpi_cfg = {.flags = {
+                                                      .avoid_tearing = false,
+                                                  }};
     display_ = lvgl_port_add_disp_dsi(&disp_cfg, &dpi_cfg);
     if (display_ == nullptr) {
         ESP_LOGE(TAG, "Failed to add display");
         return;
     }
 
+    // Apply software rotation via LVGL
+    if (swap_xy && !mirror_x && !mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_90);
+    } else if (swap_xy && mirror_x && !mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_180);
+    } else if (!swap_xy && mirror_x && mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_180);
+    } else if (swap_xy && !mirror_x && mirror_y) {
+        lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_270);
+    }
+
     if (offset_x != 0 || offset_y != 0) {
         lv_display_set_offset(display_, offset_x, offset_y);
     }
 }
+
 
 LcdDisplay::~LcdDisplay() {
     SetPreviewImage(nullptr);
