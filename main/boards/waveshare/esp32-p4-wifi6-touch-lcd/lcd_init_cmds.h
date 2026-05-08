@@ -222,7 +222,8 @@ static const jd9365_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x29, (uint8_t[]){0x00}, 1, 20},
     {0x35, (uint8_t[]){0x00}, 1, 0},
 };
-#elif CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4_3C
+#elif CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4_3 || \
+      CONFIG_BOARD_TYPE_WAVESHARE_ESP32_P4_WIFI6_TOUCH_LCD_4_3C
 static const st7701_lcd_init_cmd_t lcd_init_cmds[] = {
     {0xFF, (uint8_t []){0x77, 0x01, 0x00, 0x00, 0x11}, 5, 0},
     {0xB0, (uint8_t []){0x5D}, 1, 0},
