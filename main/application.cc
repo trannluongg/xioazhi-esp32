@@ -1261,22 +1261,28 @@ void Application::HandlePlayScene(const cJSON* root) {
                 auto req_id = std::string(req_id_str);
                 audio_service_.SetPlaybackFinishedCallback([this, reply_str, req_id]() {
                     SendSceneDoneReply(reply_str.c_str(), req_id.empty() ? nullptr : req_id.c_str());
+                    // Chuyển sang LISTENING sau khi phát trigger CONFUSED_ASR
+                    // (KHÔNG dùng cho clarifying - vì cần gửi answer)
+                    if (reply_str == "confused_asr_done") {
+                        // Audio trigger done → chuyển sang LISTENING mode
+                        xEventGroupSetBits(event_group_, MAIN_EVENT_START_LISTENING);
+                    }
                 });
             }
             
             audio_service_.PlayFile(audio_path.c_str());
             
-            // Also try to reply (works even if audio fails or no SD card)
-            if (need_reply && !reply_act.empty()) {
-                auto reply_str = std::string(reply_act);
-                auto req_id = std::string(req_id_str);
-                ESP_LOGI(TAG, "Scene reply scheduled: %s, req_id: %s", reply_str.c_str(), req_id.c_str());
-                Schedule([this, reply_str, req_id]() {
-                    // Try to send reply - may fail if not connected, but code runs
-                    ESP_LOGI(TAG, "Sending scene_done reply: %s, req_id: %s", reply_str.c_str(), req_id.c_str());
-                    SendSceneDoneReply(reply_str.c_str(), req_id.empty() ? nullptr : req_id.c_str());
-                });
-            }
+            // // Also try to reply (works even if audio fails or no SD card)
+            // if (need_reply && !reply_act.empty()) {
+            //     auto reply_str = std::string(reply_act);
+            //     auto req_id = std::string(req_id_str);
+            //     ESP_LOGI(TAG, "Scene reply scheduled: %s, req_id: %s", reply_str.c_str(), req_id.c_str());
+            //     Schedule([this, reply_str, req_id]() {
+            //         // Try to send reply - may fail if not connected, but code runs
+            //         ESP_LOGI(TAG, "Sending scene_done reply: %s, req_id: %s", reply_str.c_str(), req_id.c_str());
+            //         SendSceneDoneReply(reply_str.c_str(), req_id.empty() ? nullptr : req_id.c_str());
+            //     });
+            // }
         } else if (need_reply && !reply_act.empty()) {
             // No audio, reply immediately
             SendSceneDoneReply(reply_act.c_str(), req_id_str.empty() ? nullptr : req_id_str.c_str());
