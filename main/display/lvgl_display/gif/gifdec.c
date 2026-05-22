@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdbool.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #define TAG "GIF"
 
@@ -611,6 +613,11 @@ read_image_data(gd_GIF * gif, int interlace)
                 break;
             else
                 entry = table->entries[entry.prefix];
+
+            // Yield to prevent task watchdog timeout on large GIFs
+            if (i % 50 == 0) {
+                vTaskDelay(1);
+            }
         }
         frm_off += str_len;
         if(key < table->nentries - 1 && !table_is_full)
@@ -710,6 +717,11 @@ dispose(gd_GIF * gif)
                     gif->canvas[(i + k) * 4 + 3] = opa;
                 }
                 i += gif->width;
+
+                // Yield to prevent task watchdog timeout on large backgrounds
+                if (j % 10 == 0) {
+                    vTaskDelay(1);
+                }
             }
 #endif
             break;
