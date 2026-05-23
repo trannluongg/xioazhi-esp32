@@ -575,7 +575,7 @@ void Application::InitializeProtocol() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }
-        } else if (strcmp(type->valuestring, "llm") == 0 || strcmp(type->valuestring, "tts") == 0) {
+        } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
                 Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
@@ -1265,7 +1265,16 @@ void Application::HandlePlayScene(const cJSON* root) {
                     // (KHÔNG dùng cho clarifying - vì cần gửi answer)
                     if (reply_str == "confused_asr_done") {
                         // Audio trigger done → chuyển sang LISTENING mode
-                        xEventGroupSetBits(event_group_, MAIN_EVENT_START_LISTENING);
+                        vTaskDelay(500);
+                         Schedule([this]() {
+                            if (GetDeviceState() == kDeviceStateSpeaking) {
+                                if (listening_mode_ == kListeningModeManualStop) {
+                                    SetDeviceState(kDeviceStateIdle);
+                                } else {
+                                    SetDeviceState(kDeviceStateListening);
+                                }
+                            }
+                        });
                     }
                 });
             }
