@@ -1265,8 +1265,8 @@ void Application::HandlePlayScene(const cJSON* root) {
                     // (KHÔNG dùng cho clarifying - vì cần gửi answer)
                     if (reply_str == "confused_asr_done") {
                         // Audio trigger done → chuyển sang LISTENING mode
-                        vTaskDelay(500);
-                         Schedule([this]() {
+                        vTaskDelay(pdMS_TO_TICKS(500));
+                        Schedule([this]() {
                             if (GetDeviceState() == kDeviceStateSpeaking) {
                                 if (listening_mode_ == kListeningModeManualStop) {
                                     SetDeviceState(kDeviceStateIdle);
