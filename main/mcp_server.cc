@@ -121,6 +121,18 @@ void McpServer::AddCommonTools() {
     }
 #endif
 
+    AddTool("self.stm32.send_command",
+            "Send a command to the STM32 via I2C at address 0x20. Commands are 1-byte values that "
+            "control motors and servos.",
+            PropertyList({Property("command", kPropertyTypeInteger, 0, 255)}),
+            [&board](const PropertyList& properties) -> ReturnValue {
+                uint8_t command = static_cast<uint8_t>(properties["command"].value<int>());
+                if (board.I2cWrite(0x20, 0x00, command)) {
+                    return true;
+                }
+                return false;
+            });
+
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());
 }

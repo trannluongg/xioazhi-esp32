@@ -578,15 +578,15 @@ private:
             .name = "touch_timer"};
         esp_timer_create(&timer_args, &touch_timer_);
 
-        touch_sensor_.OnPressDown([this]() {
-            Application::GetInstance().Alert("Info", "DODO nhột quá", "happy",
-                                             Lang::Sounds::OGG_POPUP);
-            esp_timer_stop(touch_timer_);
-            esp_timer_start_once(touch_timer_, 2000000);
-        });
+        // touch_sensor_.OnPressDown([this]() {
+        //     Application::GetInstance().Alert("Info", "DODO nhột quá", "happy",
+        //                                      Lang::Sounds::OGG_POPUP);
+        //     esp_timer_stop(touch_timer_);
+        //     esp_timer_start_once(touch_timer_, 2000000);
+        // });
 
         auto random_emoji_callback = [this]() {
-            const char* emojis[] = {"kissy", "loving"};
+            const char* emojis[] = {"kissy_01", "loving~1"};
             const char* selected = emojis[esp_random() % 2];
             Application::GetInstance().Alert("Info", "Yêu quá đi!", selected,
                                              Lang::Sounds::OGG_POPUP);

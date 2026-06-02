@@ -677,19 +677,31 @@ void Application::Alert(const char* status, const char* message, const char* emo
 }
 
 void Application::DismissAlert() {
-    if (GetDeviceState() == kDeviceStateIdle) {
-        auto display = Board::GetInstance().GetDisplay();
+    auto display = Board::GetInstance().GetDisplay();
+    display->SetChatMessage("system", "");
+    
+    auto state = GetDeviceState();
+    if (state == kDeviceStateIdle) {
         display->SetStatus(Lang::Strings::STANDBY);
-        // Only set neutral if no SD card emoji was loaded
         auto theme = display->GetTheme();
         bool has_sd_emoji = false;
         if (theme && theme->emoji_collection()) {
             has_sd_emoji = (theme->emoji_collection()->GetEmojiImage("default") != nullptr);
         }
-        if (!has_sd_emoji) {
+        if (has_sd_emoji) {
+            display->SetEmotion("default");
+        } else {
             display->SetEmotion("neutral");
         }
-        display->SetChatMessage("system", "");
+    } else if (state == kDeviceStateListening) {
+        display->SetStatus(Lang::Strings::LISTENING);
+        display->SetEmotion("neutral");
+    } else if (state == kDeviceStateSpeaking) {
+        display->SetStatus(Lang::Strings::SPEAKING);
+        display->SetEmotion("neutral");
+    } else if (state == kDeviceStateConnecting) {
+        display->SetStatus(Lang::Strings::CONNECTING);
+        display->SetEmotion("neutral");
     }
 }
 
@@ -816,6 +828,9 @@ void Application::HandleWakeWordDetectedEvent() {
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
 
+    // Dừng mọi hoạt động khi nghe wakeword
+    Board::GetInstance().I2cWrite(0x20, 0x00, 0x00); // 0x00: STOP
+
     if (state == kDeviceStateIdle) {
         audio_service_.EncodeWakeWord();
         auto wake_word = audio_service_.GetLastWakeWord();
@@ -929,6 +944,9 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+            
+            // Gửi lệnh I2C báo hiệu robot đang lắng nghe
+            board.I2cWrite(0x20, 0x00, 0x1F); // 0x1F: LISTENING_MOTION
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {
@@ -1238,12 +1256,9 @@ void Application::HandlePlayScene(const cJSON* root) {
     // 2. Execute on main loop
     auto display = Board::GetInstance().GetDisplay();
     Schedule([this, display, scene, emo, gest, need_reply, reply_act, req_id_str]() {
-        // 2.1 Send gesture to STM32 (I2C) - TEMP DISABLED FOR TEST
-        // if (!gest.empty()) {
-        //     SendGestureToSTM32(gest.c_str());
-        // }
+        // 2.1 Send gesture to STM32 (I2C)
         if (!gest.empty()) {
-            ESP_LOGI(TAG, "Gesture skipped (disabled): %s", gest.c_str());
+            SendGestureToSTM32(gest.c_str());
         }
 
         // 2.2 Change emoji (from /dodomio/emoji/<emoji>.png)
@@ -1308,7 +1323,7 @@ void Application::HandleStopScene(const cJSON* root) {
     
     ESP_LOGI(TAG, "Stop scene: emoji=%s, gesture=%s", emo.c_str(), gest.c_str());
     
-auto display = Board::GetInstance().GetDisplay();
+    auto display = Board::GetInstance().GetDisplay();
     Schedule([this, display, emo, gest]() {
         // Stop audio playback
         audio_service_.StopPlayback();
@@ -1318,86 +1333,19 @@ auto display = Board::GetInstance().GetDisplay();
         
         // Send gesture stop command
         if (!gest.empty()) {
-            ESP_LOGI(TAG, "Gesture skipped (disabled): %s", gest.c_str());
+            SendGestureToSTM32(gest.c_str());
         }
-        // if (!gest.empty()) {
-        //     SendGestureToSTM32(gest.c_str());
-        // }
     });
 }
 
 void Application::SendGestureToSTM32(const char* gesture) {
-    // STM32 I2C address (common addresses: 0x27, 0x28)
-    static const uint8_t STM32_ADDR = 0x27;
-    static const uint8_t REG_CMD = 0x00;
-    // Use static I2C device handle - initialized on first call
-    static i2c_master_dev_handle_t i2c_dev_handle = nullptr;
-    // Keep static bus handle to avoid recreating
-    static i2c_master_bus_handle_t i2c_bus_handle = nullptr;
-
     auto it = GESTURE_MAP.find(gesture);
     uint8_t cmd = (it != GESTURE_MAP.end()) ? it->second : 0x00;
 
-    // Try to get I2C bus from board (only on first call)
-    if (i2c_bus_handle == nullptr) {
-        auto& board = Board::GetInstance();
-        void* i2c_bus_ptr = board.GetI2cBus();
-        if (i2c_bus_ptr != nullptr) {
-            i2c_bus_handle = *(i2c_master_bus_handle_t*)i2c_bus_ptr;
-            ESP_LOGI(TAG, "Using I2C bus from board");
-        } else {
-            // Fallback: create new I2C bus
-            ESP_LOGW(TAG, "No I2C bus from board, creating new one");
-            i2c_master_bus_config_t i2c_bus_cfg = {
-                .i2c_port = I2C_NUM_0,
-                .sda_io_num = GPIO_NUM_8,
-                .scl_io_num = GPIO_NUM_9,
-                .clk_source = I2C_CLK_SRC_DEFAULT,
-                .glitch_ignore_cnt = 7,
-                .intr_priority = 0,
-                .trans_queue_depth = 0,
-                .flags = {
-                    .enable_internal_pullup = 1,
-                },
-            };
-            if (i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_handle) != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to create I2C bus");
-                return;
-            }
-        }
-    }
-
-    // If no valid bus, skip gesture
-    if (i2c_bus_handle == nullptr) {
-        ESP_LOGE(TAG, "No I2C bus available, skipping gesture");
-        return;
-    }
-
-    // Create I2C device handle if not already created
-    if (i2c_dev_handle == nullptr) {
-        i2c_device_config_t dev_cfg = {
-            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-            .device_address = STM32_ADDR,
-            .scl_speed_hz = 400 * 1000,
-            .scl_wait_us = 0,
-            .flags = {
-                .disable_ack_check = 0,
-            },
-        };
-        if (i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &i2c_dev_handle) != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to create I2C device");
-            return;
-        }
-    }
-
-    // Send gesture command via I2C
-    uint8_t data[2] = { REG_CMD, cmd };
-    esp_err_t ret = i2c_master_transmit(i2c_dev_handle, data, sizeof(data), pdMS_TO_TICKS(100));
-
-    if (ret == ESP_OK) {
+    if (Board::GetInstance().I2cWrite(0x20, 0x00, cmd)) {
         ESP_LOGI(TAG, "Gesture sent: %s -> 0x%02X", gesture, cmd);
     } else {
-        ESP_LOGE(TAG, "Failed to send gesture: %s (err=0x%x)", gesture, ret);
+        ESP_LOGE(TAG, "Failed to send gesture: %s", gesture);
     }
 }
 
