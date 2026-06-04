@@ -326,7 +326,9 @@ void AudioService::AudioOutputTask() {
         // Only trigger for SD card playback (PlayFile), not server streaming
         if (was_empty && is_playing_from_sdcard_ && callbacks_.on_playback_finished) {
             is_playing_from_sdcard_ = false;  // Reset flag
-            callbacks_.on_playback_finished();
+            auto callback = std::move(callbacks_.on_playback_finished);
+            callbacks_.on_playback_finished = nullptr;
+            callback();
         }
 
 #if CONFIG_USE_SERVER_AEC
@@ -778,15 +780,12 @@ bool AudioService::IsAfeWakeWord() {
 }
 
 void AudioService::PlayFile(const char* file_path) {
-    
-    // Mark as playing from SD card (for callback filtering)
-    is_playing_from_sdcard_ = true;
-    
     // Check if file exists
     ESP_LOGI(TAG, "PlayFile: %s", file_path);
     struct stat st;
     if (stat(file_path, &st) != 0) {
         ESP_LOGW(TAG, "File not found: %s", file_path);
+        is_playing_from_sdcard_ = false;
         return;
     }
     
@@ -794,6 +793,7 @@ void AudioService::PlayFile(const char* file_path) {
     FILE* f = fopen(file_path, "rb");
     if (!f) {
         ESP_LOGW(TAG, "Failed to open file: %s", file_path);
+        is_playing_from_sdcard_ = false;
         return;
     }
     
@@ -807,6 +807,7 @@ void AudioService::PlayFile(const char* file_path) {
     if (fread(header, 1, 44, f) != 44) {
         ESP_LOGW(TAG, "Failed to read WAV header");
         fclose(f);
+        is_playing_from_sdcard_ = false;
         return;
     }
     
@@ -814,6 +815,7 @@ void AudioService::PlayFile(const char* file_path) {
     if (header[0] != 'R' || header[1] != 'I' || header[2] != 'F' || header[3] != 'F') {
         ESP_LOGW(TAG, "Not a valid WAV file");
         fclose(f);
+        is_playing_from_sdcard_ = false;
         return;
     }
     
@@ -824,6 +826,10 @@ void AudioService::PlayFile(const char* file_path) {
     
     ESP_LOGI(TAG, "Playing WAV: %s, SR=%d, Ch=%d, Bits=%d", file_path, sample_rate, channels, bits_per_sample);
     
+    // Mark as playing from SD card only after the WAV file is validated
+    is_playing_from_sdcard_ = true;
+    bool playback_started = false;
+
     // Read and play audio data in chunks
     const int buffer_size = 4096;
     std::vector<uint8_t> buffer(buffer_size);
@@ -844,8 +850,16 @@ void AudioService::PlayFile(const char* file_path) {
         
         // Push to playback queue DIRECTLY (not decode queue!)
         PushTaskToPlaybackQueue(std::move(task), true);
+        playback_started = true;
     }
     
     fclose(f);
+
+    if (!playback_started) {
+        ESP_LOGW(TAG, "No audio data in WAV: %s", file_path);
+        is_playing_from_sdcard_ = false;
+        return;
+    }
+
     ESP_LOGI(TAG, "WAV playback started: %s", file_path);
 }
