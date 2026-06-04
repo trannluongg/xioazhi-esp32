@@ -328,6 +328,12 @@ void AudioService::AudioOutputTask() {
             is_playing_from_sdcard_ = false;  // Reset flag
             auto callback = std::move(callbacks_.on_playback_finished);
             callbacks_.on_playback_finished = nullptr;
+
+            // Wait for the final audio chunk to finish playing through the codec
+            int delay_ms = 50 + static_cast<int>(task->pcm.size() * 1000ll / codec_->output_sample_rate());
+            if (delay_ms > 0) {
+                vTaskDelay(pdMS_TO_TICKS(delay_ms));
+            }
             callback();
         }
 
@@ -365,6 +371,7 @@ void AudioService::OpusCodecTask() {
             auto task = std::make_unique<AudioTask>();
             task->type = kAudioTaskTypeDecodeToPlaybackQueue;
             task->timestamp = packet->timestamp;
+            task->from_sdcard = false;
 
             SetDecodeSampleRate(packet->sample_rate, packet->frame_duration);
             if (opus_decoder_ != nullptr) {
@@ -786,6 +793,35 @@ void AudioService::PlayFile(const char* file_path) {
         is_playing_from_sdcard_ = false;
     }
 
+    // If server/TTS audio is pending, skip SD playback until it is finished.
+    std::function<void(void)> callback_to_call = nullptr;
+    bool skip_sd_playback = false;
+    {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        skip_sd_playback = !audio_decode_queue_.empty();
+        if (!skip_sd_playback) {
+            for (const auto& queued_task : audio_playback_queue_) {
+                if (!queued_task->from_sdcard) {
+                    skip_sd_playback = true;
+                    break;
+                }
+            }
+        }
+        if (skip_sd_playback) {
+            ESP_LOGI(TAG, "Skip SD playback because server/TTS audio is pending");
+            if (callbacks_.on_playback_finished) {
+                callback_to_call = std::move(callbacks_.on_playback_finished);
+                callbacks_.on_playback_finished = nullptr;
+            }
+        }
+    }
+    if (skip_sd_playback) {
+        if (callback_to_call) {
+            callback_to_call();
+        }
+        return;
+    }
+
     // Check if file exists
     ESP_LOGI(TAG, "PlayFile: %s", file_path);
     struct stat st;
@@ -836,7 +872,40 @@ void AudioService::PlayFile(const char* file_path) {
     int sample_rate = (header[24] | (header[25] << 8) | (header[26] << 16) | (header[27] << 24));
     int channels = (header[22] | (header[23] << 8));
     int bits_per_sample = (header[34] | (header[35] << 8));
-    
+
+    int target_rate = codec_->output_sample_rate();
+    if (bits_per_sample != 16) {
+        ESP_LOGW(TAG, "Unsupported WAV bits_per_sample=%d, only 16-bit supported", bits_per_sample);
+        fclose(f);
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        callbacks_.on_playback_finished = nullptr;
+        is_playing_from_sdcard_ = false;
+        return;
+    }
+    if (channels != 1 && channels != 2) {
+        ESP_LOGW(TAG, "Unsupported WAV channel count=%d, only mono or stereo supported", channels);
+        fclose(f);
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        callbacks_.on_playback_finished = nullptr;
+        is_playing_from_sdcard_ = false;
+        return;
+    }
+
+    bool need_resample = (sample_rate != target_rate);
+    esp_ae_rate_cvt_handle_t file_resampler = nullptr;
+    if (need_resample) {
+        esp_ae_rate_cvt_cfg_t file_resampler_cfg = RATE_CVT_CFG(sample_rate, target_rate, ESP_AUDIO_MONO);
+        auto resampler_ret = esp_ae_rate_cvt_open(&file_resampler_cfg, &file_resampler);
+        if (file_resampler == nullptr) {
+            ESP_LOGW(TAG, "Failed to open file resampler from %d to %d, error=%d", sample_rate, target_rate, resampler_ret);
+            fclose(f);
+            std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+            callbacks_.on_playback_finished = nullptr;
+            is_playing_from_sdcard_ = false;
+            return;
+        }
+    }
+
     ESP_LOGI(TAG, "Playing WAV: %s, SR=%d, Ch=%d, Bits=%d", file_path, sample_rate, channels, bits_per_sample);
     
     bool playback_started = false;
@@ -849,21 +918,50 @@ void AudioService::PlayFile(const char* file_path) {
         size_t bytes_read = fread(buffer.data(), 1, buffer_size, f);
         if (bytes_read == 0) break;
         
+        // Convert raw bytes to int16_t PCM and channel-mix if needed.
+        size_t num_samples = bytes_read / sizeof(int16_t);
+        std::vector<int16_t> pcm_data(num_samples);
+        std::memcpy(pcm_data.data(), buffer.data(), num_samples * sizeof(int16_t));
+
+        if (channels == 2) {
+            std::vector<int16_t> mono_data(num_samples / 2);
+            for (size_t i = 0, j = 0; j + 1 < num_samples; i++, j += 2) {
+                mono_data[i] = pcm_data[j];
+            }
+            pcm_data = std::move(mono_data);
+            num_samples = pcm_data.size();
+        }
+
+        std::vector<int16_t> output_pcm;
+        if (need_resample) {
+            uint32_t max_out = 0;
+            esp_ae_rate_cvt_get_max_out_sample_num(file_resampler, num_samples, &max_out);
+            output_pcm.resize(max_out);
+            uint32_t actual_output = max_out;
+            esp_ae_rate_cvt_process(file_resampler,
+                                   (esp_ae_sample_t)pcm_data.data(),
+                                   num_samples,
+                                   (esp_ae_sample_t)output_pcm.data(),
+                                   &actual_output);
+            output_pcm.resize(actual_output);
+        } else {
+            output_pcm = std::move(pcm_data);
+        }
+
         // Create audio task with PCM data (no encoding)
         auto task = std::make_unique<AudioTask>();
         task->type = kAudioTaskTypeDecodeToPlaybackQueue;
-        
-        // Convert raw bytes to int16_t PCM
-        int16_t* pcm_data = (int16_t*)buffer.data();
-        size_t num_samples = bytes_read / sizeof(int16_t);
-        task->pcm.resize(num_samples);
-        std::memcpy(task->pcm.data(), pcm_data, num_samples * sizeof(int16_t));
+        task->from_sdcard = true;
+        task->pcm = std::move(output_pcm);
         
         // Push to playback queue DIRECTLY (not decode queue!)
         PushTaskToPlaybackQueue(std::move(task), true);
         playback_started = true;
     }
     
+    if (file_resampler != nullptr) {
+        esp_ae_rate_cvt_close(file_resampler);
+    }
     fclose(f);
 
     if (!playback_started) {

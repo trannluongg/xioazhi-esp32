@@ -94,6 +94,7 @@ struct AudioTask {
     AudioTaskType type;
     std::vector<int16_t> pcm;
     uint32_t timestamp;
+    bool from_sdcard = false;
 };
 
 struct DebugStatistics {
