@@ -780,12 +780,19 @@ bool AudioService::IsAfeWakeWord() {
 }
 
 void AudioService::PlayFile(const char* file_path) {
+    // Reset only playback-state flag while preserving a newly set callback.
+    {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        is_playing_from_sdcard_ = false;
+    }
+
     // Check if file exists
     ESP_LOGI(TAG, "PlayFile: %s", file_path);
     struct stat st;
     if (stat(file_path, &st) != 0) {
         ESP_LOGW(TAG, "File not found: %s", file_path);
-        is_playing_from_sdcard_ = false;
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        callbacks_.on_playback_finished = nullptr;
         return;
     }
     
@@ -793,6 +800,8 @@ void AudioService::PlayFile(const char* file_path) {
     FILE* f = fopen(file_path, "rb");
     if (!f) {
         ESP_LOGW(TAG, "Failed to open file: %s", file_path);
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
         return;
     }
@@ -807,6 +816,8 @@ void AudioService::PlayFile(const char* file_path) {
     if (fread(header, 1, 44, f) != 44) {
         ESP_LOGW(TAG, "Failed to read WAV header");
         fclose(f);
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
         return;
     }
@@ -815,6 +826,8 @@ void AudioService::PlayFile(const char* file_path) {
     if (header[0] != 'R' || header[1] != 'I' || header[2] != 'F' || header[3] != 'F') {
         ESP_LOGW(TAG, "Not a valid WAV file");
         fclose(f);
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
         return;
     }
@@ -826,8 +839,6 @@ void AudioService::PlayFile(const char* file_path) {
     
     ESP_LOGI(TAG, "Playing WAV: %s, SR=%d, Ch=%d, Bits=%d", file_path, sample_rate, channels, bits_per_sample);
     
-    // Mark as playing from SD card only after the WAV file is validated
-    is_playing_from_sdcard_ = true;
     bool playback_started = false;
 
     // Read and play audio data in chunks
@@ -857,8 +868,14 @@ void AudioService::PlayFile(const char* file_path) {
 
     if (!playback_started) {
         ESP_LOGW(TAG, "No audio data in WAV: %s", file_path);
-        is_playing_from_sdcard_ = false;
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        callbacks_.on_playback_finished = nullptr;
         return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+        is_playing_from_sdcard_ = true;
     }
 
     ESP_LOGI(TAG, "WAV playback started: %s", file_path);

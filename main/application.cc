@@ -1292,6 +1292,8 @@ void Application::HandlePlayScene(const cJSON* root) {
                         });
                     }
                 });
+            } else {
+                audio_service_.SetPlaybackFinishedCallback(nullptr);
             }
             
             audio_service_.PlayFile(audio_path.c_str());
@@ -1309,7 +1311,10 @@ void Application::HandlePlayScene(const cJSON* root) {
             // }
         } else if (need_reply && !reply_act.empty()) {
             // No audio, reply immediately
+            audio_service_.SetPlaybackFinishedCallback(nullptr);
             SendSceneDoneReply(reply_act.c_str(), req_id_str.empty() ? nullptr : req_id_str.c_str());
+        } else {
+            audio_service_.SetPlaybackFinishedCallback(nullptr);
         }
     });
 }
