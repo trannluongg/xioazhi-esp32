@@ -18,6 +18,7 @@
 #include <arpa/inet.h>
 #include <font_awesome.h>
 #include <unordered_map>
+#include <esp_random.h>
 
 #define TAG "Application"
 
@@ -430,7 +431,15 @@ void Application::CheckNewVersion() {
             snprintf(error_message, sizeof(error_message), "code=%d, url=%s", err, ota_->GetCheckVersionUrl().c_str());
             char buffer[256];
             snprintf(buffer, sizeof(buffer), Lang::Strings::CHECK_NEW_VERSION_FAILED, retry_delay, error_message);
-            Alert(Lang::Strings::ERROR, buffer, "cloud_slash", Lang::Sounds::OGG_EXCLAMATION);
+
+            char random_emoji[16];
+            int rand_val = (int)(esp_random() % 4) + 1;
+            snprintf(random_emoji, sizeof(random_emoji), "confai~%d", rand_val);
+            Alert(Lang::Strings::ERROR, buffer, random_emoji, "");
+
+            char random_audio[64];
+            snprintf(random_audio, sizeof(random_audio), "/sdcard/dodomio/audio/DISCON~%d.WAV", rand_val);
+            audio_service_.PlayFile(random_audio);
 
             ESP_LOGW(TAG, "Check new version failed, retry in %d seconds (%d/%d)", retry_delay, retry_count, MAX_RETRY);
             for (int i = 0; i < retry_delay; i++) {

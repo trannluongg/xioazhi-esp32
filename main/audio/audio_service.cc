@@ -787,6 +787,10 @@ bool AudioService::IsAfeWakeWord() {
 }
 
 void AudioService::PlayFile(const char* file_path) {
+    // Elevate priority to prevent audio stuttering due to starvation
+    UBaseType_t original_priority = uxTaskPriorityGet(NULL);
+    vTaskPrioritySet(NULL, 5);
+
     // Reset only playback-state flag while preserving a newly set callback.
     {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
@@ -819,6 +823,7 @@ void AudioService::PlayFile(const char* file_path) {
         if (callback_to_call) {
             callback_to_call();
         }
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
 
@@ -829,6 +834,7 @@ void AudioService::PlayFile(const char* file_path) {
         ESP_LOGW(TAG, "File not found: %s", file_path);
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         callbacks_.on_playback_finished = nullptr;
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
     
@@ -839,6 +845,7 @@ void AudioService::PlayFile(const char* file_path) {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
     
@@ -855,6 +862,7 @@ void AudioService::PlayFile(const char* file_path) {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
     
@@ -865,6 +873,7 @@ void AudioService::PlayFile(const char* file_path) {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
     
@@ -880,6 +889,7 @@ void AudioService::PlayFile(const char* file_path) {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
     if (channels != 1 && channels != 2) {
@@ -888,6 +898,7 @@ void AudioService::PlayFile(const char* file_path) {
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         callbacks_.on_playback_finished = nullptr;
         is_playing_from_sdcard_ = false;
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
 
@@ -902,6 +913,7 @@ void AudioService::PlayFile(const char* file_path) {
             std::lock_guard<std::mutex> lock(audio_queue_mutex_);
             callbacks_.on_playback_finished = nullptr;
             is_playing_from_sdcard_ = false;
+            vTaskPrioritySet(NULL, original_priority);
             return;
         }
     }
@@ -911,7 +923,7 @@ void AudioService::PlayFile(const char* file_path) {
     bool playback_started = false;
 
     // Read and play audio data in chunks
-    const int buffer_size = 4096;
+    const int buffer_size = 8192;
     std::vector<uint8_t> buffer(buffer_size);
     
     while (true) {
@@ -968,6 +980,7 @@ void AudioService::PlayFile(const char* file_path) {
         ESP_LOGW(TAG, "No audio data in WAV: %s", file_path);
         std::lock_guard<std::mutex> lock(audio_queue_mutex_);
         callbacks_.on_playback_finished = nullptr;
+        vTaskPrioritySet(NULL, original_priority);
         return;
     }
 
@@ -977,4 +990,5 @@ void AudioService::PlayFile(const char* file_path) {
     }
 
     ESP_LOGI(TAG, "WAV playback started: %s", file_path);
+    vTaskPrioritySet(NULL, original_priority);
 }
