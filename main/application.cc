@@ -1286,6 +1286,21 @@ void Application::HandlePlayScene(const cJSON* root) {
                 auto req_id = std::string(req_id_str);
                 audio_service_.SetPlaybackFinishedCallback([this, reply_str, req_id]() {
                     SendSceneDoneReply(reply_str.c_str(), req_id.empty() ? nullptr : req_id.c_str());
+                    // Chuyển sang LISTENING sau khi phát trigger CONFUSED_ASR
+                    // (KHÔNG dùng cho clarifying - vì cần gửi answer)
+                    if (reply_str == "confused_asr_done") {
+                        // Audio trigger done -> chuyển sang LISTENING mode
+                        vTaskDelay(pdMS_TO_TICKS(500));
+                        Schedule([this]() {
+                            if (GetDeviceState() == kDeviceStateSpeaking) {
+                                if (listening_mode_ == kListeningModeManualStop) {
+                                    SetDeviceState(kDeviceStateIdle);
+                                } else {
+                                    SetDeviceState(kDeviceStateListening);
+                                }
+                            }
+                        });
+                    }
                 });
             } else {
                 audio_service_.SetPlaybackFinishedCallback(nullptr);
