@@ -314,6 +314,11 @@ void AudioService::AudioOutputTask() {
             esp_timer_stop(audio_power_timer_);
             esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
             codec_->EnableOutput(true);
+
+            // Feed zeroes to let the PA stabilize and avoid pop noise
+            int zero_samples = codec_->output_sample_rate() * 50 / 1000; // 50ms
+            std::vector<int16_t> zeroes(zero_samples * codec_->output_channels(), 0);
+            codec_->OutputData(zeroes);
         }
 
         codec_->OutputData(task->pcm);
