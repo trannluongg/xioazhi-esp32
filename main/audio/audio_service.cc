@@ -316,7 +316,7 @@ void AudioService::AudioOutputTask() {
             codec_->EnableOutput(true);
 
             // Feed zeroes to let the PA stabilize and avoid pop noise
-            int zero_samples = codec_->output_sample_rate() * 50 / 1000; // 50ms
+            int zero_samples = codec_->output_sample_rate() * 100 / 1000; // 50ms
             std::vector<int16_t> zeroes(zero_samples * codec_->output_channels(), 0);
             codec_->OutputData(zeroes);
         }
@@ -471,6 +471,10 @@ void AudioService::OpusCodecTask() {
             }
             lock.lock();
         }
+
+        lock.unlock();
+        // Yield to prevent task watchdog timeout (TWDT) when under heavy CPU load (e.g. concurrent GIF decoding)
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     ESP_LOGW(TAG, "Opus codec task stopped");
@@ -689,11 +693,6 @@ void AudioService::StopPlayback() {
 }
 
 void AudioService::PlaySound(const std::string_view& ogg) {
-    if (!codec_->output_enabled()) {
-        esp_timer_stop(audio_power_timer_);
-        esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
-        codec_->EnableOutput(true);
-    }
 
     const auto* buf = reinterpret_cast<const uint8_t*>(ogg.data());
     size_t size = ogg.size();
@@ -854,10 +853,7 @@ void AudioService::PlayFile(const char* file_path) {
         return;
     }
     
-    // Enable output if not enabled
-    if (!codec_->output_enabled()) {
-        codec_->EnableOutput(true);
-    }
+    // Enable output will be handled by AudioOutputTask with zeroes to prevent pop noise
     
     // Read WAV file header (44 bytes)
     uint8_t header[44];
