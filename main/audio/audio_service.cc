@@ -922,6 +922,9 @@ void AudioService::PlayFile(const char* file_path) {
     ESP_LOGI(TAG, "Playing WAV: %s, SR=%d, Ch=%d, Bits=%d", file_path, sample_rate, channels, bits_per_sample);
     
     bool playback_started = false;
+    bool is_first_chunk = true;
+    size_t bytes_processed = 0;
+    size_t data_bytes = st.st_size > 44 ? st.st_size - 44 : 0;
 
     // Read and play audio data in chunks
     const int buffer_size = 8192;
@@ -931,6 +934,9 @@ void AudioService::PlayFile(const char* file_path) {
         size_t bytes_read = fread(buffer.data(), 1, buffer_size, f);
         if (bytes_read == 0) break;
         
+        bytes_processed += bytes_read;
+        bool is_last_chunk = (bytes_processed >= data_bytes || bytes_read < buffer_size);
+
         // Convert raw bytes to int16_t PCM and channel-mix if needed.
         size_t num_samples = bytes_read / sizeof(int16_t);
         std::vector<int16_t> pcm_data(num_samples);
@@ -961,6 +967,24 @@ void AudioService::PlayFile(const char* file_path) {
             output_pcm = std::move(pcm_data);
         }
 
+        // Apply fade-in to the first chunk
+        if (is_first_chunk && !output_pcm.empty()) {
+            int fade_samples = std::min(1000, (int)output_pcm.size()); // ~20ms to 60ms fade
+            for (int i = 0; i < fade_samples; i++) {
+                output_pcm[i] = output_pcm[i] * i / fade_samples;
+            }
+            is_first_chunk = false;
+        }
+
+        // Apply fade-out to the last chunk
+        if (is_last_chunk && !output_pcm.empty()) {
+            int fade_samples = std::min(1000, (int)output_pcm.size());
+            for (int i = 0; i < fade_samples; i++) {
+                int idx = output_pcm.size() - fade_samples + i;
+                output_pcm[idx] = output_pcm[idx] * (fade_samples - 1 - i) / fade_samples;
+            }
+        }
+
         // Create audio task with PCM data (no encoding)
         auto task = std::make_unique<AudioTask>();
         task->type = kAudioTaskTypeDecodeToPlaybackQueue;
@@ -970,6 +994,16 @@ void AudioService::PlayFile(const char* file_path) {
         // Push to playback queue DIRECTLY (not decode queue!)
         PushTaskToPlaybackQueue(std::move(task), true);
         playback_started = true;
+        
+        if (is_last_chunk) {
+            // Push an extra chunk of zeroes to flush I2S DMA and DAC
+            auto zero_task = std::make_unique<AudioTask>();
+            zero_task->type = kAudioTaskTypeDecodeToPlaybackQueue;
+            zero_task->from_sdcard = true;
+            zero_task->pcm.assign(target_rate * 50 / 1000, 0); // 50ms of zeroes
+            PushTaskToPlaybackQueue(std::move(zero_task), true);
+            break;
+        }
     }
     
     if (file_resampler != nullptr) {
