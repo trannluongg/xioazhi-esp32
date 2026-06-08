@@ -995,6 +995,9 @@ void AudioService::PlayFile(const char* file_path) {
         PushTaskToPlaybackQueue(std::move(task), true);
         playback_started = true;
         
+        // Yield CPU to allow AFE fetch task and other tasks to run, preventing AFE ringbuffer overflow
+        vTaskDelay(pdMS_TO_TICKS(2));
+        
         if (is_last_chunk) {
             // Push an extra chunk of zeroes to flush I2S DMA and DAC
             auto zero_task = std::make_unique<AudioTask>();
