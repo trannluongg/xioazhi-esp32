@@ -544,6 +544,14 @@ void Application::InitializeProtocol() {
         // Parse JSON data
         auto type = cJSON_GetObjectItem(root, "type");
         if (strcmp(type->valuestring, "tts") == 0) {
+            // Handle action if present
+            auto action = cJSON_GetObjectItem(root, "action");
+            if (cJSON_IsString(action)) {
+                uint8_t action_cmd = (uint8_t)strtol(action->valuestring, NULL, 16);
+                Board::GetInstance().I2cWrite(0x20, 0x00, action_cmd);
+                ESP_LOGI(TAG, "Sent I2C action: 0x%02X", action_cmd);
+            }
+
             auto state = cJSON_GetObjectItem(root, "state");
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
