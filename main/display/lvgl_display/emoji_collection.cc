@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <cstring>
+#include <esp_heap_caps.h>
 
 static const char *TAG = "EmojiCollection";
 
@@ -73,7 +74,7 @@ void EmojiCollection::LoadDefaultEmoji(const char* base_path) {
     }
     
     // Allocate buffer and read file
-    void* data = malloc(st.st_size);
+    void* data = heap_caps_malloc(st.st_size, MALLOC_CAP_SPIRAM);
     if (data == nullptr) {
         ESP_LOGW(TAG, "Cannot allocate memory for: %s", filepath);
         fclose(f);
@@ -145,7 +146,7 @@ bool EmojiCollection::LoadEmojiOnDemand(const char* name, const char* base_path)
         return false;
     }
     
-    void* data = malloc(st.st_size);
+    void* data = heap_caps_malloc(st.st_size, MALLOC_CAP_SPIRAM);
     if (data == nullptr) {
         ESP_LOGW(TAG, "Cannot allocate memory for: %s", name);
         fclose(f);
