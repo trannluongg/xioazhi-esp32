@@ -21,18 +21,6 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
 
-#include "display/lvgl_display/lvgl_theme.h"
-#include "display/lvgl_display/lvgl_image.h"
-
-#include <esp_vfs_fat.h>
-#include <sdmmc_cmd.h>
-#include <driver/sdmmc_host.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <string>
-#include <vector>
-#include <esp_random.h>
-
 #define TAG "WaveshareEsp32s3TouchLCD43c"
 
 class CustomBacklight : public Backlight {
@@ -59,7 +47,6 @@ private:
     esp_io_expander_handle_t io_expander = NULL;
     PowerSaveTimer* power_save_timer_;
     CustomBacklight *backlight_;
-    bool is_sdcard_found_ = false;
 
     void InitializePowerSaveTimer() {
         power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
@@ -100,8 +87,8 @@ private:
 
     void InitializeCustomio(void) {
         custom_io_expander_new_i2c_ch32v003(i2c_bus_, BSP_IO_EXPANDER_I2C_ADDRESS, &io_expander);
-        esp_io_expander_set_dir(io_expander, BSP_POWER_AMP_IO | BSP_LCD_BACKLIGHT | BSP_LCD_TOUCH_RST | IO_EXPANDER_PIN_NUM_4, IO_EXPANDER_OUTPUT);
-        esp_io_expander_set_level(io_expander, BSP_POWER_AMP_IO | BSP_LCD_BACKLIGHT | BSP_LCD_TOUCH_RST | IO_EXPANDER_PIN_NUM_4, 1);
+        esp_io_expander_set_dir(io_expander, BSP_POWER_AMP_IO | BSP_LCD_BACKLIGHT | BSP_LCD_TOUCH_RST , IO_EXPANDER_OUTPUT);
+        esp_io_expander_set_level(io_expander, BSP_POWER_AMP_IO | BSP_LCD_BACKLIGHT | BSP_LCD_TOUCH_RST , 1);
 
         esp_io_expander_set_level(io_expander, BSP_LCD_TOUCH_RST, 0);
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -132,10 +119,11 @@ private:
                 }
             },
             .data_width = 16,
-            .bits_per_pixel = 16,
+            .in_color_format = LCD_COLOR_FMT_RGB565,
+            .out_color_format = LCD_COLOR_FMT_RGB565,
             .num_fbs = 2,
             .bounce_buffer_size_px = BSP_LCD_H_RES * 10,
-            .psram_trans_align = 64,
+            .dma_burst_size = 64,
             .hsync_gpio_num = BSP_LCD_HSYNC,
             .vsync_gpio_num = BSP_LCD_VSYNC,
             .de_gpio_num = BSP_LCD_DE,
@@ -181,22 +169,17 @@ private:
             },
         };
         esp_lcd_panel_io_handle_t tp_io_handle = NULL;
-        // esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
-        // tp_io_config.scl_speed_hz = 400 * 1000;
-         esp_lcd_panel_io_i2c_config_t tp_io_config = {
-            .on_color_trans_done = NULL,
-            .user_ctx = NULL,
+        esp_lcd_panel_io_i2c_config_t tp_io_config = {
+            .dev_addr = ESP_LCD_TOUCH_IO_I2C_GT911_ADDRESS, 
             .control_phase_bytes = 1,
             .dc_bit_offset = 0,
-            .lcd_cmd_bits = 16,
-            .lcd_param_bits = 16,
-            .flags = {
-                .dc_low_on_data = 0,
+            .lcd_cmd_bits = 16,                            
+            .flags =
+            {
                 .disable_control_phase = 1,
             }
-        };
-        tp_io_config.scl_speed_hz = 400000;
-        tp_io_config.dev_addr = 0x5D;
+	    };
+        tp_io_config.scl_speed_hz = 400 * 1000;
 
         esp_lcd_new_panel_io_i2c(i2c_bus_, &tp_io_config, &tp_io_handle);
 
@@ -222,62 +205,12 @@ private:
             });
     }
 
-    void InitializeSdCard() {
-        ESP_LOGI(TAG, "========== SD Card Detection ==========");
-        ESP_LOGI(TAG, "Scanning for SD card...");
-        ESP_LOGI(TAG, "  SD CLK: GPIO%d", BSP_SD_CLK);
-        ESP_LOGI(TAG, "  SD CMD: GPIO%d", BSP_SD_CMD);
-        ESP_LOGI(TAG, "  SD D0 : GPIO%d", BSP_SD_D0);
-
-        esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-            .format_if_mount_failed = false,
-            .max_files = 5,
-            .allocation_unit_size = 16 * 1024,
-        };
-
-        sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-        host.flags = SDMMC_HOST_FLAG_1BIT;  // Use 1-bit bus width
-        host.max_freq_khz = SDMMC_FREQ_DEFAULT;
-
-        sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-        slot_config.width = 1;  // 1-bit bus width
-        slot_config.clk = BSP_SD_CLK;
-        slot_config.cmd = BSP_SD_CMD;
-        slot_config.d0  = BSP_SD_D0;
-        slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-
-        sdmmc_card_t* card = NULL;
-        esp_err_t ret = esp_vfs_fat_sdmmc_mount(SD_MOUNT_POINT, &host, &slot_config, &mount_config, &card);
-
-        if (ret != ESP_OK) {
-            is_sdcard_found_ = false;
-            if (ret == ESP_FAIL) {
-                ESP_LOGE(TAG, "[SD] FAILED: Unable to mount filesystem on SD card");
-            } else {
-                ESP_LOGE(TAG, "[SD] NOT PLUGGED or init failed: %s", esp_err_to_name(ret));
-            }
-            ESP_LOGW(TAG, "[SD] SD card is NOT detected. Emoji from SD card will not be available.");
-        } else {
-            is_sdcard_found_ = true;
-            ESP_LOGI(TAG, "[SD] PLUGGED - SD card mounted successfully at %s", SD_MOUNT_POINT);
-            sdmmc_card_print_info(stdout, card);
-            struct stat st;
-            if (stat("/sdcard/dodomio/emoji", &st) == 0 && S_ISDIR(st.st_mode)) {
-                ESP_LOGI(TAG, "[SD] Found /sdcard/dodomio/emoji directory");
-            } else {
-                ESP_LOGW(TAG, "[SD] /sdcard/dodomio/emoji directory NOT found");
-            }
-        }
-        ESP_LOGI(TAG, "========================================");
-    }
-
 public:
     WaveshareEsp32s3TouchLCD43c() {
         InitializePowerSaveTimer();
         InitializeGpio();
         InitializeCodecI2c();
         InitializeCustomio();
-        InitializeSdCard();
         InitializeRGB();
         InitializeTouch();
         InitializeTools();
@@ -314,10 +247,6 @@ public:
             power_save_timer_->WakeUp();
         }
         WifiBoard::SetPowerSaveLevel(level);
-    }
-
-    virtual void* GetI2cBus() override {
-        return (void*)i2c_bus_;
     }
 };
 

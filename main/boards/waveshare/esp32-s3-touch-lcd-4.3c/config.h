@@ -85,11 +85,5 @@
 #define DISPLAY_BACKLIGHT_PIN            GPIO_NUM_NC
 #define DISPLAY_BACKLIGHT_OUTPUT_INVERT  true
 
-/* SD Card (SDMMC 1-bit mode) */
-#define BSP_SD_CLK               (GPIO_NUM_12)
-#define BSP_SD_CMD               (GPIO_NUM_11)
-#define BSP_SD_D0                (GPIO_NUM_13)
-#define SD_MOUNT_POINT           "/sdcard"
-
 
 #endif // _BOARD_CONFIG_H_
